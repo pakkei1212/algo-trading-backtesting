@@ -193,7 +193,7 @@ def performance(report: RunReport) -> None:
                     "Average holding hours",
                     "holding_hours",
                     "number",
-                    "Elapsed hours from entry to exit for closed positions.",
+                    "Elapsed hours from entry to exit for closed positions; — if no closed trades.",
                 ),
             ]
         ],
@@ -206,21 +206,21 @@ def performance(report: RunReport) -> None:
             )
         ],
     }
-    for group, rows in groups.items():
-        st.subheader(group)
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {"Metric": label, "Value": number(value, style)}
-                    for label, value, style, _ in rows
-                ]
-            ),
-            hide_index=True,
-            width="stretch",
-        )
-        with st.expander(f"{group} definitions"):
-            for label, _, _, definition in rows:
-                st.markdown(f"**{label}:** {definition}")
+    # Keep each label/value pair together when Streamlit normally stacks narrow columns.
+    st.html("""
+        <style>
+        .st-key-performance-report [data-testid="stHorizontalBlock"] {flex-wrap:nowrap}
+        .st-key-performance-report [data-testid="stColumn"] {min-width:0 !important}
+        </style>
+    """)
+    with st.container(key="performance-report"):
+        for group, rows in groups.items():
+            st.subheader(group)
+            with st.container(border=True):
+                for label, value, style, definition in rows:
+                    title, result = st.columns([3, 2], vertical_alignment="center")
+                    title.markdown(label, help=definition)
+                    result.markdown(number(value, style), text_alignment="right")
 
 
 def filtered_trades(

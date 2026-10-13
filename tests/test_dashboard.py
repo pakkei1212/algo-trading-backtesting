@@ -30,6 +30,12 @@ def test_dashboard_can_run_and_save(tmp_path: Path) -> None:
     assert not app.exception
     assert app.session_state[f"selected:{run_folder.name}"]
     assert app.session_state[f"command:{run_folder.name}"]["kind"] == "trade"
+    help_rows = [item for item in app.markdown if item.proto.help]
+    assert len(help_rows) == 20
+    assert next(item.proto.help for item in help_rows if item.value == "Profit factor") == (
+        "Positive net P&L / absolute losses; — if no losses."
+    )
+    assert not any(item.label.endswith(" definitions") for item in app.expander)
     next(
         button for button in app.button if button.label == "Use settings for a new run"
     ).click().run()

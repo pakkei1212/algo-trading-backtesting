@@ -10,8 +10,9 @@ performance or change the simulation period.
   winners/closed trades, profit factor, starting/final equity, positions and commissions.
   Account equity and net P&L charts include unrealized P&L and paid fees. Optional
   drawdown is measured from the running equity peak.
-- **Performance**: grouped monetary, risk, trade and holding-time statistics. Expand
-  definitions for the precise meaning of each value. Dollar and percentage maximum
+- **Performance**: grouped monetary, risk, trade and holding-time statistics. Hover
+  over or focus the question-mark icon beside each metric for its definition.
+  Dollar and percentage maximum
   drawdown are separate maxima and can occur at different times.
 - **Trades**: one row per native position, sorted by entry. Filter direction, status or
   outcome; select a row or use Previous/Next to focus the price chart. The Selected
