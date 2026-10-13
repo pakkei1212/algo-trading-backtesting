@@ -1,0 +1,17 @@
+# Execution/report diagnostic only. This DOES NOT enforce the baseline's $50 risk budget.
+schema_version: 1
+name: MNQ one-contract diagnostic — not a risk recommendation
+fast_period: 20
+slow_period: 50
+atr_period: 14
+atr_multiple: 2.0
+initial_equity_usd: 10000
+risk_fraction: 0.005
+max_contracts: 2
+fixed_contracts: 1
+sizing_rule: fixed_contracts
+max_drawdown_fraction: 0.10
+commission_per_side_usd: 1.0
+slippage_ticks: 1
+margin_per_contract_usd: 3000
+allow_rolling_proxy: true
