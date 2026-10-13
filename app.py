@@ -5,8 +5,11 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import yaml
 
 from mnq_research.backtest import run_backtest
+from mnq_research.cloud import run_cloud_backtest
+from mnq_research.cloud_ui import deployment_mode, download_run, session_workspace, upload_panel
 from mnq_research.config import StrategyConfig, load_config, save_config
 from mnq_research.data import load_dataset
 from mnq_research.results_ui import render_results
@@ -14,8 +17,26 @@ from mnq_research.risk import maximum_stop_by_risk
 
 ROOT = Path(__file__).resolve().parent
 st.set_page_config(page_title="MNQ Research", page_icon="📈", layout="wide")
+try:
+    CLOUD = deployment_mode() == "cloud"
+except ValueError as error:
+    st.error(str(error))
+    st.stop()
+workspace = session_workspace() if CLOUD else None
+WORK = workspace.root if workspace else ROOT
 st.title("MNQ Strategy Research")
-st.caption("Local historical research · NautilusTrader · No live trading")
+st.caption(
+    f"{'Shared' if CLOUD else 'Local'} historical research · NautilusTrader · No live trading"
+)
+if CLOUD:
+    st.info(
+        "Your uploads, configurations and runs are private to this browser session and temporary. "
+        "Download anything you want to keep. Cloud limit: five retained runs per session."
+    )
+    if st.button("Clear my session"):
+        workspace.close()
+        st.session_state.clear()
+        st.rerun()
 build_tab, results_tab, compare_tab = st.tabs(
     ["Configure & run", "Inspect results", "Compare runs"]
 )
@@ -29,11 +50,23 @@ def read_csv(path: Path) -> pd.DataFrame:
 
 
 with build_tab:
-    datasets = sorted((ROOT / "data").glob("*/metadata.json"))
+    if workspace:
+        upload_panel(workspace)
+    datasets = sorted((WORK / "data").glob("*/metadata.json"))
     if not datasets:
-        st.info("Import actual market history first. See README for Yahoo and CSV commands.")
+        st.info(
+            "Upload real market data above."
+            if CLOUD
+            else "Import actual market history first. See README for Yahoo and CSV commands."
+        )
     selected = st.selectbox(
-        "Historical dataset", datasets, format_func=lambda path: path.parent.name
+        "Historical dataset",
+        datasets,
+        format_func=lambda path: (
+            f"{json.loads(path.read_text(encoding='utf-8'))['symbol']} · Uploaded CSV"
+            if CLOUD
+            else path.parent.name
+        ),
     )
     if selected:
         try:
@@ -49,10 +82,21 @@ with build_tab:
             st.error(str(error))
             selected = None
     configs = sorted((ROOT / "configs").glob("*.yaml"))
+    if CLOUD:
+        configs += sorted((WORK / "configs").glob("*.yaml"))
     config_path = st.selectbox(
         "Saved configuration",
         configs,
-        format_func=lambda path: path.name,
+        format_func=lambda path: (
+            (
+                "Session: "
+                if CLOUD and path.parent == WORK / "configs"
+                else "Preset: "
+                if CLOUD
+                else ""
+            )
+            + path.name
+        ),
         on_change=lambda: st.session_state.pop("draft_config", None),
     )
     base = load_config(config_path) if config_path else None
@@ -166,26 +210,51 @@ with build_tab:
                         raise ValueError(
                             "Filename may contain letters, numbers, underscores and hyphens"
                         )
-                    target = ROOT / "configs" / f"{save_name}.yaml"
+                    target = WORK / "configs" / f"{save_name}.yaml"
                     if target.exists():
                         raise ValueError(
                             "Choose a new filename to preserve the existing configuration"
                         )
                     save_config(config, target)
-                    st.success(f"Saved {target.name}. Reload the page to select it.")
+                    st.success(
+                        f"Saved {target.name}. "
+                        "It appears in the configuration list on the next interaction."
+                    )
+                st.session_state["reviewed_config"] = config.model_dump(mode="json")
                 if run_clicked:
                     if not selected:
                         raise ValueError("Select a valid dataset first")
                     with st.spinner("Running NautilusTrader…"):
-                        run_folder = run_backtest(config, selected.parent, ROOT / "runs")
+                        run_folder = (
+                            run_cloud_backtest(config, selected.parent, workspace)
+                            if workspace
+                            else run_backtest(config, selected.parent, ROOT / "runs")
+                        )
                     st.success(f"Saved run {run_folder.name}. Open Inspect results.")
             except (ValueError, OSError, KeyError) as error:
                 st.error(str(error))
+            except Exception:
+                if not CLOUD:
+                    raise
+                st.error(
+                    "The backtest failed. Earlier runs are retained; review the data and retry."
+                )
+        if CLOUD:
+            reviewed = st.session_state.get("reviewed_config", base.model_dump(mode="json"))
+            st.download_button(
+                "Download strategy YAML",
+                yaml.safe_dump(reviewed, sort_keys=False),
+                file_name="strategy.yaml",
+                mime="application/yaml",
+                help="Saved or submitted settings; unsent form edits are not included.",
+            )
 
-runs = sorted((ROOT / "runs").glob("*/summary.json"), reverse=True)
+runs = sorted((WORK / "runs").glob("*/summary.json"), reverse=True)
 with results_tab:
     chosen = st.selectbox("Saved run", runs, format_func=lambda path: path.parent.name)
     if chosen:
+        if CLOUD:
+            download_run(chosen.parent)
         render_results(chosen.parent)
 with compare_tab:
     selections = st.multiselect("Runs to compare", runs, format_func=lambda path: path.parent.name)
