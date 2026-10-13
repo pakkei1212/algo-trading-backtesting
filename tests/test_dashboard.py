@@ -2,8 +2,9 @@
 
 from pathlib import Path
 
+import pytest
 from streamlit.testing.v1 import AppTest
-from test_research import dataset, settings
+from test_research import dataset, market_bars, settings
 
 from mnq_research.cloud import import_upload
 from mnq_research.config import save_config
@@ -40,6 +41,11 @@ def test_dashboard_can_run_and_save(tmp_path: Path) -> None:
 
 def test_cloud_dashboard_isolates_sessions_and_clears_files(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("MNQ_DEPLOYMENT_MODE", "cloud")
+
+    def unavailable():
+        raise OSError("provider unavailable in test")
+
+    monkeypatch.setattr("mnq_research.cloud_ui.rolling_history", unavailable)
     source = Path(__file__).resolve().parents[1] / "app.py"
     (tmp_path / "app.py").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     save_config(settings(), tmp_path / "configs" / "baseline.yaml")
@@ -70,3 +76,42 @@ def test_cloud_dashboard_isolates_sessions_and_clears_files(tmp_path, monkeypatc
     assert not first_workspace.root.exists()
     first.session_state["cloud_workspace"].close()
     second_workspace.close()
+
+
+@pytest.mark.parametrize("first_failure", [False, True])
+def test_cloud_preload_once_retry_and_preserve_upload(tmp_path, monkeypatch, first_failure) -> None:
+    monkeypatch.setenv("MNQ_DEPLOYMENT_MODE", "cloud")
+    source = Path(__file__).resolve().parents[1] / "app.py"
+    (tmp_path / "app.py").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    save_config(settings(), tmp_path / "configs" / "baseline.yaml")
+    calls = []
+
+    def provider():
+        calls.append(True)
+        if first_failure and len(calls) == 1:
+            raise OSError("temporary provider failure")
+        return market_bars([100] * 8), {
+            "kind": "rolling_proxy",
+            "symbol": "MNQ=F",
+            "source": "test provider",
+        }
+
+    monkeypatch.setattr("mnq_research.cloud_ui.rolling_history", provider)
+    app = AppTest.from_file(str(tmp_path / "app.py"), default_timeout=60).run()
+    assert not app.exception
+    app.run()
+    assert len(calls) == 1
+    if first_failure:
+        next(b for b in app.button if b.label == "Retry loading rolling MNQ data").click().run()
+        assert len(calls) == 2 and not app.exception
+    workspace = app.session_state["cloud_workspace"]
+    assert len(list((workspace.root / "data").glob("*/metadata.json"))) == 1
+    from test_cloud import csv_bytes
+
+    uploaded = import_upload(
+        csv_bytes(), workspace, "MNQH6", "user data", "dated_contract", "2026-03-20T14:30:00Z"
+    )
+    app.run()
+    assert not app.exception and uploaded.exists()
+    assert len(calls) == (2 if first_failure else 1)
+    workspace.close()

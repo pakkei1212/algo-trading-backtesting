@@ -20,8 +20,9 @@ completed by the account owner.
 
 ## Your friend's workflow
 
-1. Upload a real CSV and provide its source and MNQ symbol.
-2. Choose a dated contract and enter its actual expiration, or choose a rolling
+1. Wait for one year of hourly rolling Yahoo `MNQ=F` history to preload. Its coverage
+   dates are displayed. Alternatively, upload a real CSV and provide its source and MNQ symbol.
+2. For a CSV, choose a dated contract and enter its actual expiration, or choose a rolling
    proxy and acknowledge its exploratory nature.
 3. Choose a preset, review the strategy settings, and click Run backtest.
 4. Inspect charts/trades; download strategy YAML and the complete run ZIP to keep them.
@@ -39,7 +40,12 @@ No market dataset is redistributed through GitHub.
 Cloud mode stores files in a generated temporary directory for each Streamlit
 session. It never reads the desktop `data/` or `runs/` directories. Repository
 configuration presets are read-only; saved configurations belong to the session.
-One session cannot select another session's uploaded data or run results.
+One session cannot select another session's uploaded data or run results. The public
+Yahoo history is cached in memory for one hour and copied into each session's workspace.
+It is a rolling research proxy, not verified dated-contract history. Unfinished bars
+and invalid provider rows are excluded by the existing importer. Preload runs once
+per session and never replaces an uploaded dataset. On provider failure, retry or upload
+your own CSV. Datasets remain excluded from GitHub.
 
 Uploads are limited to 10 MiB and 10,000 bars. A new valid upload replaces the
 session's previous dataset. Existing runs contain their own data snapshot. Only

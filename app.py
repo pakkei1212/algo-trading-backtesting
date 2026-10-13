@@ -9,7 +9,13 @@ import yaml
 
 from mnq_research.backtest import run_backtest
 from mnq_research.cloud import run_cloud_backtest
-from mnq_research.cloud_ui import deployment_mode, download_run, session_workspace, upload_panel
+from mnq_research.cloud_ui import (
+    deployment_mode,
+    download_run,
+    preload_market_data,
+    session_workspace,
+    upload_panel,
+)
 from mnq_research.config import StrategyConfig, load_config, save_config
 from mnq_research.data import load_dataset
 from mnq_research.results_ui import render_results
@@ -51,6 +57,7 @@ def read_csv(path: Path) -> pd.DataFrame:
 
 with build_tab:
     if workspace:
+        preload_market_data(workspace)
         upload_panel(workspace)
     datasets = sorted((WORK / "data").glob("*/metadata.json"))
     if not datasets:
@@ -59,14 +66,18 @@ with build_tab:
             if CLOUD
             else "Import actual market history first. See README for Yahoo and CSV commands."
         )
+    # Snapshot labels: a new upload may remove a previously selected dataset before rerun.
+    dataset_labels = {}
+    for path in datasets:
+        if CLOUD:
+            info = json.loads(path.read_text(encoding="utf-8"))
+            dataset_labels[path] = f"{info['symbol']} · {info['source']}"
+        else:
+            dataset_labels[path] = path.parent.name
     selected = st.selectbox(
         "Historical dataset",
         datasets,
-        format_func=lambda path: (
-            f"{json.loads(path.read_text(encoding='utf-8'))['symbol']} · Uploaded CSV"
-            if CLOUD
-            else path.parent.name
-        ),
+        format_func=lambda path: dataset_labels.get(path, path.parent.name),
     )
     if selected:
         try:

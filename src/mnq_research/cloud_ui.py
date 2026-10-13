@@ -2,11 +2,15 @@
 
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from uuid import uuid4
 
+import pandas as pd
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
-from mnq_research.cloud import CloudWorkspace, import_upload, run_archive
+from mnq_research.cloud import MAX_BARS, CloudWorkspace, import_upload, run_archive
+from mnq_research.data import download_yahoo, load_dataset, write_dataset
 
 
 def deployment_mode() -> str:
@@ -25,6 +29,38 @@ def session_workspace() -> CloudWorkspace:
     if "cloud_workspace" not in st.session_state:
         st.session_state["cloud_workspace"] = CloudWorkspace()
     return st.session_state["cloud_workspace"]
+
+
+@st.cache_data(ttl=3600, max_entries=1, show_spinner=False)
+def rolling_history() -> tuple[pd.DataFrame, dict]:
+    """Cache public provider history for one hour; private uploads never enter this cache."""
+    with TemporaryDirectory(prefix="mnq-yahoo-") as temporary:
+        folder = download_yahoo(Path(temporary) / "dataset", "1y")
+        return load_dataset(folder)
+
+
+def preload_market_data(workspace: CloudWorkspace) -> None:
+    """Try once per session; preserve uploaded data and provide an explicit retry on failure."""
+    if any((workspace.root / "data").iterdir()):
+        return
+    retry = False
+    if st.session_state.get("preload_attempted"):
+        st.warning(st.session_state.get("preload_error", "No market data is loaded."))
+        retry = st.button("Retry loading rolling MNQ data")
+    if st.session_state.get("preload_attempted") and not retry:
+        return
+    st.session_state["preload_attempted"] = True
+    try:
+        with st.spinner("Loading hourly rolling MNQ history from Yahoo…"):
+            frame, metadata = rolling_history()
+            if len(frame) > MAX_BARS:
+                raise ValueError("Provider history exceeds the 10,000-bar cloud limit")
+            write_dataset(frame, workspace.root / "data" / uuid4().hex, metadata)
+        st.session_state.pop("preload_error", None)
+    except (ValueError, OSError, KeyError) as error:
+        message = f"Rolling MNQ preload is unavailable: {error}. You can upload a CSV below."
+        st.session_state["preload_error"] = message
+        st.warning(message)
 
 
 def upload_panel(workspace: CloudWorkspace) -> None:
