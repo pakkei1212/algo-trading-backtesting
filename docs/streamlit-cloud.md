@@ -72,7 +72,8 @@ over the Secrets mode setting. No Node server or Docker is needed for deployment
 the chart bundle is included in the Python package. A disposable Linux container
 is used for development verification only.
 
-`requirements.txt` loads the pinned `requirements.lock` and installs this package.
+`requirements.txt` loads the pinned `requirements.lock` and installs this package
+in editable mode, so source updates are used even when pinned dependencies do not change.
 Validate a clean Linux Python 3.12 installation before deployment. Native Nautilus
 wheels require compatible Linux/glibc; inspect the cloud build log if installation
 fails instead of silently changing the simulation engine version.
