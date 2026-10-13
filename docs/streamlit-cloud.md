@@ -1,4 +1,4 @@
-# Share the app privately on Streamlit Community Cloud
+# Share the app on Streamlit Community Cloud
 
 Deploy the GitHub repository `pakkei1212/algo-trading-backtesting`, branch `main`,
 entrypoint `app.py`. In Advanced settings choose Python **3.12**. Paste this into
@@ -8,11 +8,15 @@ the Secrets setting (it is a mode flag, not a credential):
 deployment_mode = "cloud"
 ```
 
-After deployment, open Settings → Sharing and choose **Only specific people can
-view this app**. Add the intended viewers there. Do not assume that a private
-application follows automatically from the repository's current privacy setting.
-Use the generated `*.streamlit.app` URL to share the app. Account login and any
-new GitHub permission prompts must be completed by the account owner.
+For the selected public-link workflow, open Settings → Sharing after deployment
+and choose **This app is public and searchable**. Share the generated
+`*.streamlit.app` URL; viewers do not need an email invitation. The GitHub repository
+can remain private. Check application visibility explicitly because deployment
+from a private repository initially creates a private app.
+
+To restrict access later, choose **Only specific people can view this app** and add
+the intended viewers. Account login and any new GitHub permission prompts must be
+completed by the account owner.
 
 ## Your friend's workflow
 

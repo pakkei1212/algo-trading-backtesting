@@ -9,7 +9,7 @@ checkout is excluded from this repository. Install it separately using its upstr
 instructions if needed; this Python application runs without it. Historical datasets,
 saved runs, credentials and local dependencies are also excluded from Git.
 
-For private sharing, see [Streamlit Community Cloud deployment](docs/streamlit-cloud.md).
+For browser sharing, see [Streamlit Community Cloud deployment](docs/streamlit-cloud.md).
 Cloud mode supports session-isolated CSV uploads, backtests and downloadable results.
 
 ## Setup (Windows PowerShell)
