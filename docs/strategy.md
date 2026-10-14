@@ -1,5 +1,9 @@
 # Hourly SMA / ATR baseline
 
+For configurable filters, sequential setups and independent exits, see
+[the hourly strategy builder](strategy-builder.md). The original SMA rules below
+remain available through the existing baseline presets.
+
 This is a transparent research baseline, not a claim of market advantage.
 
 The default uses 2% equity risk per trade and a 1×ATR stop. With the starting USD 10,000

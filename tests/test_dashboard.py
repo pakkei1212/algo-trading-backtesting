@@ -10,6 +10,75 @@ from mnq_research.cloud import import_upload
 from mnq_research.config import save_config
 
 
+def test_builder_dashboard_edits_groups_saves_and_runs(tmp_path: Path) -> None:
+    from test_builder import builder_settings
+
+    source = Path(__file__).resolve().parents[1] / "app.py"
+    (tmp_path / "app.py").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    save_config(builder_settings(), tmp_path / "configs" / "trend_pullback.yaml")
+    dataset(tmp_path / "data", [101, 101, 99, 101, 110, 111, 112, 113])
+    app = AppTest.from_file(str(tmp_path / "app.py"), default_timeout=60).run()
+    assert not app.exception
+    assert next(s.value for s in app.selectbox if s.label == "Strategy construction") == (
+        "Condition builder"
+    )
+    assert any("Long market filter" in item.value for item in app.markdown)
+    next(s for s in app.selectbox if s.label == "Combine conditions").set_value("any").run()
+    next(n for n in app.number_input if n.label == "Number of conditions").set_value(2).run()
+    assert not app.exception
+    next(button for button in app.button if button.label == "Save configuration").click().run()
+    assert not app.exception
+    from mnq_research.config import load_config
+
+    saved = load_config(tmp_path / "configs" / "my_strategy.yaml")
+    assert saved.builder and saved.builder.long
+    assert saved.builder.long.market_filter.mode == "any"
+    assert len(saved.builder.long.market_filter.conditions) == 2
+    next(button for button in app.button if button.label == "Run backtest").click().run()
+    assert not app.exception
+    assert list((tmp_path / "runs").glob("*/summary.json"))
+    next(button for button in app.button if button.label == "Next trade").click().run()
+    assert not app.exception
+    assert any("setup triggered after 1 observed bars" in item.value for item in app.markdown)
+    # Changing a group never submits another backtest.
+    count = len(list((tmp_path / "runs").glob("*/summary.json")))
+    next(s for s in app.selectbox if s.label == "Combine conditions").set_value("all").run()
+    assert not app.exception
+    assert len(list((tmp_path / "runs").glob("*/summary.json"))) == count
+
+
+def test_builder_cloud_yaml_and_reports_use_session_workspace(tmp_path, monkeypatch) -> None:
+    from test_builder import builder_settings
+    from test_cloud import csv_bytes
+
+    monkeypatch.setenv("MNQ_DEPLOYMENT_MODE", "cloud")
+
+    def unavailable():
+        raise OSError("provider unavailable in test")
+
+    monkeypatch.setattr("mnq_research.cloud_ui.rolling_history", unavailable)
+    source = Path(__file__).resolve().parents[1] / "app.py"
+    (tmp_path / "app.py").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    save_config(builder_settings(), tmp_path / "configs" / "trend_pullback.yaml")
+    app = AppTest.from_file(str(tmp_path / "app.py"), default_timeout=60).run()
+    workspace = app.session_state["cloud_workspace"]
+    try:
+        import_upload(
+            csv_bytes(), workspace, "MNQH6", "test", "dated_contract", "2026-03-20T14:30:00Z"
+        )
+        app.run()
+        next(button for button in app.button if button.label == "Save configuration").click().run()
+        assert not app.exception
+        assert (workspace.root / "configs" / "my_strategy.yaml").exists()
+        assert not (tmp_path / "configs" / "my_strategy.yaml").exists()
+        assert app.session_state["reviewed_config"]["schema_version"] == 2
+        next(button for button in app.button if button.label == "Run backtest").click().run()
+        assert not app.exception
+        assert list((workspace.root / "runs").glob("*/summary.json"))
+    finally:
+        workspace.close()
+
+
 def test_dashboard_can_run_and_save(tmp_path: Path) -> None:
     app_source = Path(__file__).resolve().parents[1] / "app.py"
     (tmp_path / "app.py").write_text(app_source.read_text(encoding="utf-8"), encoding="utf-8")

@@ -24,3 +24,4 @@ tradingview-mcp/
 !/configs/baseline.yaml
 !/configs/conservative_baseline.yaml
 !/configs/fixed_contract_diagnostic.yaml
+!/configs/trend_pullback.yaml

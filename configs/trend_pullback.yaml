@@ -1,0 +1,98 @@
+schema_version: 2
+name: MNQ hourly trend pullback
+entry_rule: criteria
+exit_rule: criteria
+builder:
+  long:
+    market_filter:
+      mode: all
+      conditions:
+      - id: long_trend_price
+        left:
+          kind: close
+          period: null
+          offset: 0
+          value: null
+        operator: above
+        right:
+          kind: ema
+          period: 200
+          offset: 0
+          value: null
+      - id: long_trend_rising
+        left:
+          kind: ema
+          period: 200
+          offset: 0
+          value: null
+        operator: above
+        right:
+          kind: ema
+          period: 200
+          offset: 5
+          value: null
+    setup:
+      mode: all
+      conditions:
+      - id: long_pullback
+        left:
+          kind: close
+          period: null
+          offset: 0
+          value: null
+        operator: crosses_below
+        right:
+          kind: ema
+          period: 20
+          offset: 0
+          value: null
+    trigger:
+      mode: all
+      conditions:
+      - id: long_recovery
+        left:
+          kind: close
+          period: null
+          offset: 0
+          value: null
+        operator: crosses_above
+        right:
+          kind: ema
+          period: 20
+          offset: 0
+          value: null
+    signal_exit:
+      mode: all
+      conditions:
+      - id: long_trend_failure
+        left:
+          kind: close
+          period: null
+          offset: 0
+          value: null
+        operator: below
+        right:
+          kind: ema
+          period: 200
+          offset: 0
+          value: null
+  short: null
+  setup_window_bars: 5
+  max_holding_bars: 48
+sizing_rule: percent_risk
+fast_period: 20
+slow_period: 50
+atr_period: 14
+atr_multiple: 1.0
+direction: long
+initial_equity_usd: 10000.0
+risk_fraction: 0.02
+max_contracts: 2
+fixed_contracts: 1
+max_drawdown_fraction: 0.1
+commission_per_side_usd: 1.0
+slippage_ticks: 1
+margin_per_contract_usd: 3000.0
+allow_rolling_proxy: true
+start: null
+end: null

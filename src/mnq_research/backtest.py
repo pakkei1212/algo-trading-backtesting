@@ -87,11 +87,14 @@ def run_backtest(config: StrategyConfig, dataset: Path, output_root: Path = Path
     if config.end:
         frame = frame[frame.index <= config.end]
     if config.start:
-        warmup = max(config.slow_period, config.atr_period) + 1
+        warmup = config.warmup_bars()
+        # EMA is recursive: retain the full observed prefix so its seed does not
+        # change merely because an evaluation start date was chosen.
+        prefix = frame[frame.index < config.start]
         frame = pd.concat(
-            [frame[frame.index < config.start].tail(warmup), frame[frame.index >= config.start]]
+            [prefix if config.builder else prefix.tail(warmup), frame[frame.index >= config.start]]
         )
-    if len(frame) <= max(config.slow_period, config.atr_period) + 1:
+    if len(frame) <= config.warmup_bars():
         raise ValueError("Not enough bars for warm-up and evaluation")
     instrument = build_instrument(frame, metadata)
     bar_type = BarType.from_str(f"{instrument.id}-1-HOUR-LAST-EXTERNAL")
@@ -150,7 +153,7 @@ def run_backtest(config: StrategyConfig, dataset: Path, output_root: Path = Path
             source_hash.update(path.name.encode())
             source_hash.update(path.read_bytes())
         manifest = {
-            "report_version": 2,
+            "report_version": 3 if config.builder else 2,
             "run_id": run_id,
             "engine": "nautilus_trader==1.231.0",
             "source_sha256": source_hash.hexdigest(),

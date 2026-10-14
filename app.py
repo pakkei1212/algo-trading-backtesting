@@ -1,6 +1,7 @@
 """Local dashboard entry point: python -m streamlit run app.py."""
 
 import json
+from hashlib import sha256
 from pathlib import Path
 
 import pandas as pd
@@ -8,6 +9,7 @@ import streamlit as st
 import yaml
 
 from mnq_research.backtest import run_backtest
+from mnq_research.builder_ui import render_builder
 from mnq_research.cloud import run_cloud_backtest
 from mnq_research.cloud_ui import (
     deployment_mode,
@@ -98,6 +100,7 @@ with build_tab:
     config_path = st.selectbox(
         "Saved configuration",
         configs,
+        key="saved_configuration",
         format_func=lambda path: (
             (
                 "Session: "
@@ -115,6 +118,20 @@ with build_tab:
         base = StrategyConfig.model_validate(st.session_state["draft_config"])
         st.info(f"Loaded settings from run {st.session_state['draft_run']}. Review and run below.")
     if base:
+        editor_key = sha256(base.model_dump_json().encode()).hexdigest()[:12]
+        strategy_type = st.selectbox(
+            "Strategy construction",
+            ["SMA crossover baseline", "Condition builder"],
+            index=1 if base.builder else 0,
+            key=f"construction:{editor_key}",
+            help="The condition builder supports filters, sequential setups, entry triggers "
+            "and independent exits. Changing the display never runs a backtest.",
+        )
+        builder, builder_direction = (
+            render_builder(base, f"builder:{editor_key}")
+            if strategy_type == "Condition builder"
+            else (None, base.direction)
+        )
         if base.sizing_rule == "percent_risk":
             budget = base.initial_equity_usd * base.risk_fraction
             ceiling = maximum_stop_by_risk(base.initial_equity_usd, base)
@@ -130,15 +147,21 @@ with build_tab:
             name = st.text_input("Strategy name", base.name)
             first, second, third = st.columns(3)
             with first:
-                st.subheader("Entry & exit")
-                fast = st.number_input("Fast SMA bars", 2, 1000, base.fast_period)
-                slow = st.number_input("Slow SMA bars", 3, 2000, base.slow_period)
+                st.subheader(
+                    "Protective stop" if strategy_type == "Condition builder" else "Entry & exit"
+                )
+                fast, slow = base.fast_period, base.slow_period
+                if strategy_type == "SMA crossover baseline":
+                    fast = st.number_input("Fast SMA bars", 2, 1000, base.fast_period)
+                    slow = st.number_input("Slow SMA bars", 3, 2000, base.slow_period)
                 atr = st.number_input("ATR bars", 2, 1000, base.atr_period)
                 multiple = st.number_input("ATR stop multiple", 0.1, 20.0, base.atr_multiple)
-                directions = ["both", "long", "short"]
-                direction = st.selectbox(
-                    "Direction", directions, index=directions.index(base.direction)
-                )
+                direction = builder_direction
+                if strategy_type == "SMA crossover baseline":
+                    directions = ["both", "long", "short"]
+                    direction = st.selectbox(
+                        "Direction", directions, index=directions.index(base.direction)
+                    )
             with second:
                 st.subheader("Sizing & risk")
                 capital = st.number_input(
@@ -181,7 +204,12 @@ with build_tab:
                     base.end.isoformat() if base.end else "",
                 )
             st.caption(
-                "Exits: ATR stop or opposite crossover. Signals at close; orders at next open. "
+                (
+                    "Exits: fixed ATR protection plus configured signal/holding rules. "
+                    if strategy_type == "Condition builder"
+                    else "Exits: ATR stop or opposite crossover. "
+                )
+                + "Signals at close; orders at next open. "
                 "Overnight/weekend holds allowed. Costs shown here are research assumptions."
             )
             save_name = st.text_input("Save configuration filename", "my_strategy")
@@ -189,9 +217,15 @@ with build_tab:
             run_clicked = st.form_submit_button("Run backtest", type="primary")
         if save_clicked or run_clicked:
             try:
+                if strategy_type == "Condition builder" and builder is None:
+                    raise ValueError("Correct the criteria before saving or running")
                 config = StrategyConfig.model_validate(
                     {
                         **base.model_dump(),
+                        "schema_version": 2 if builder else 1,
+                        "entry_rule": "criteria" if builder else "sma_cross",
+                        "exit_rule": "criteria" if builder else "atr_stop_and_opposite",
+                        "builder": builder,
                         "name": name,
                         "fast_period": fast,
                         "slow_period": slow,

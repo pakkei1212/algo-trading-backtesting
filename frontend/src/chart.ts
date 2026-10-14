@@ -1,4 +1,5 @@
 import { paddedRange, initialRange } from "./ranges";
+import { availableIndicators } from "./indicator-values";
 import {
   createChart,
   CandlestickSeries,
@@ -46,7 +47,12 @@ type Payload = {
   mode: "price" | "performance";
   timezone: string;
   candles: Candle[];
-  indicators: { time: number; fast?: number; slow?: number; atr?: number }[];
+  indicators: ({ time: number } & Record<string, number | undefined>)[];
+  indicator_definitions?: {
+    key: string;
+    label: string;
+    pane: "price" | "atr";
+  }[];
   markers: Marker[];
   trades: Trade[];
   stops: {
@@ -91,7 +97,13 @@ const green = "#089981",
   blue = "#2962ff";
 
 export default function render({ data, parentElement, setStateValue }: Args) {
-  if (data.version !== 1) throw new Error("Unsupported chart data version");
+  if (![1, 2].includes(data.version))
+    throw new Error("Unsupported chart data version");
+  const indicatorDefinitions = data.indicator_definitions || [
+    { key: "fast", label: "Fast SMA", pane: "price" },
+    { key: "slow", label: "Slow SMA", pane: "price" },
+    { key: "atr", label: "ATR", pane: "atr" },
+  ];
   type ChartRoot = HTMLElement & { dispose?: () => void };
   const previous = parentElement.querySelector<ChartRoot>(".workspace");
   previous?.dispose?.();
@@ -335,7 +347,7 @@ export default function render({ data, parentElement, setStateValue }: Args) {
   });
   if (data.mode === "price") {
     toggle("Close line", "line");
-    toggle("SMA", "sma");
+    toggle("Strategy averages", "sma");
     toggle("Stops", "stops");
     toggle("Executions", "markers");
     toggle("Volume", "volume");
@@ -442,16 +454,17 @@ export default function render({ data, parentElement, setStateValue }: Args) {
         priceSeries.setData(candles.map((c) => ({ ...c, time: time(c.time) })));
       }
       if (settings.sma) {
-        for (const [key, color] of [
-          ["fast", "#00bcd4"],
-          ["slow", "#ab47bc"],
-        ] as const) {
+        const palette = ["#00bcd4", "#ab47bc", "#2962ff", "#ff9800"];
+        for (const [index, definition] of indicatorDefinitions
+          .filter((d) => d.pane === "price")
+          .entries()) {
+          const key = definition.key;
           const series = chart.addSeries(LineSeries, {
-            color,
+            color: palette[index % palette.length],
             lineWidth: 2,
             priceLineVisible: false,
             lastValueVisible: false,
-            title: key + " SMA",
+            title: definition.label,
           });
           series.setData(
             data.indicators
@@ -598,13 +611,21 @@ export default function render({ data, parentElement, setStateValue }: Args) {
       if (!param.time) return;
       const t = Number(param.time),
         c = candles.find((c) => c.time === t);
-      const indicator = data.indicators.find((p) => p.time === t);
+      const indicator = availableIndicators(data.indicators, t);
       const matches = data.markers.filter((m) => m.time === t);
       let message = format(t);
       if (c)
         message += ` · O ${c.open.toFixed(2)} H ${c.high.toFixed(2)} L ${c.low.toFixed(2)} C ${c.close.toFixed(2)} · Vol ${c.volume.toLocaleString()}`;
       if (indicator)
-        message += ` · Fast ${indicator.fast?.toFixed(2) ?? "—"} Slow ${indicator.slow?.toFixed(2) ?? "—"} ATR ${indicator.atr?.toFixed(2) ?? "—"} (last completed bar)`;
+        message +=
+          " · " +
+          indicatorDefinitions
+            .map(
+              (definition) =>
+                `${definition.label} ${indicator[definition.key]?.toFixed(2) ?? "—"}`,
+            )
+            .join(" · ") +
+          " (last completed bar)";
       if (data.mode === "performance") {
         const p = data.performance.find((p) => p.time === t);
         if (p)
