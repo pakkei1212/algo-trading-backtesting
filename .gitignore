@@ -18,3 +18,9 @@ tradingview-mcp/
 !.env.example
 *.pem
 *.key
+
+# Only the supplied strategy presets belong in version control.
+/configs/*
+!/configs/baseline.yaml
+!/configs/conservative_baseline.yaml
+!/configs/fixed_contract_diagnostic.yaml

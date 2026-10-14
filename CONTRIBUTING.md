@@ -45,3 +45,17 @@ next-open timing, stops, costs and futures accounting after any engine update.
 
 Do not commit market datasets, broker secrets, run artifacts, or virtual environments.
 Do not alter the independent `tradingview-mcp/` tree for ordinary Python changes.
+
+## Strategy configurations and branches
+
+Git tracks only the supplied presets: `configs/baseline.yaml`,
+`configs/conservative_baseline.yaml`, and `configs/fixed_contract_diagnostic.yaml`.
+All other files and directories under `configs/` are ignored. Personal configurations
+remain available to the local app; removing a file from Git tracking does not delete
+its local copy. Keep your own backups of personal configurations. A new supplied
+preset requires an explicit change to the ignore exceptions.
+
+Keep the deployed MVP on `main`. Develop the next phase on `develop/post-mvp`, then
+merge verified changes into `main` through reviewed pull requests. Streamlit remains
+connected to `main`. Previously committed configurations remain in Git history;
+ignoring and untracking them does not rewrite existing commits.
