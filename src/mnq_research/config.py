@@ -7,14 +7,17 @@ from typing import Literal, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from mnq_research.criteria import BuilderConfig
+
 
 class StrategyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     name: str = "MNQ hourly SMA baseline"
-    entry_rule: Literal["sma_cross"] = "sma_cross"
-    exit_rule: Literal["atr_stop_and_opposite"] = "atr_stop_and_opposite"
+    entry_rule: Literal["sma_cross", "criteria"] = "sma_cross"
+    exit_rule: Literal["atr_stop_and_opposite", "criteria"] = "atr_stop_and_opposite"
+    builder: BuilderConfig | None = None
     sizing_rule: Literal["percent_risk", "fixed_contracts"] = "percent_risk"
     fast_period: int = Field(default=20, ge=2, le=1000)
     slow_period: int = Field(default=50, ge=3, le=2000)
@@ -37,6 +40,17 @@ class StrategyConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_periods(self) -> Self:
+        if self.entry_rule == "criteria":
+            if self.schema_version != 2 or self.exit_rule != "criteria" or self.builder is None:
+                raise ValueError(
+                    "Criteria strategies require schema version 2 and builder settings"
+                )
+            expected = {"long", "short"} if self.direction == "both" else {self.direction}
+            actual = {side for side in ("long", "short") if getattr(self.builder, side) is not None}
+            if actual != expected:
+                raise ValueError("Define separate criteria for every enabled direction")
+        elif self.builder is not None or self.exit_rule != "atr_stop_and_opposite":
+            raise ValueError("SMA strategies cannot include builder criteria")
         if self.fast_period >= self.slow_period:
             raise ValueError("fast_period must be smaller than slow_period")
         for value in (self.start, self.end):
@@ -47,6 +61,15 @@ class StrategyConfig(BaseModel):
         if self.fixed_contracts > self.max_contracts:
             raise ValueError("fixed_contracts cannot exceed max_contracts")
         return self
+
+    def warmup_bars(self) -> int:
+        if self.builder is None:
+            return max(self.slow_period, self.atr_period) + 1
+        requirements = [self.atr_period]
+        for condition in self.builder.conditions():
+            for operand in (condition.left, condition.right):
+                requirements.append((operand.period or 1) + operand.offset + 1)
+        return max(requirements)
 
 
 def load_config(path: Path) -> StrategyConfig:

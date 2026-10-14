@@ -2,7 +2,7 @@
 
 import ast
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +27,9 @@ class TradeRecord:
     duration_hours: float
     exit_reason: str
     order_ids: list[str]
+    entry_explanation: str = "Unavailable in this legacy run"
+    exit_explanation: str = "Unavailable in this legacy run"
+    signal_time: str | None = None
 
 
 @dataclass
@@ -43,6 +46,7 @@ class ChartSeries:
     markers: list[dict]
     stops: list[dict]
     performance: list[dict]
+    indicator_definitions: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -198,6 +202,51 @@ def load_run(folder: Path) -> RunReport:
                 order_ids,
             )
         )
+        trade = trades[-1]
+        if config.builder and "signal_id" in linked:
+            signals = linked.signal_id.dropna()
+            signal = next(
+                (
+                    e
+                    for e in events
+                    if e.reason == "entry_signal"
+                    and not signals.empty
+                    and e.detail.get("signal_id") == signals.iloc[0]
+                ),
+                None,
+            )
+            if signal:
+                trade.signal_time = signal.timestamp
+                setup = next(
+                    (
+                        e
+                        for e in events
+                        if e.reason == "setup_triggered"
+                        and e.timestamp == signal.timestamp
+                        and e.detail.get("direction") == signal.detail.get("direction")
+                    ),
+                    None,
+                )
+                age = int(setup.detail["age_bars"]) if setup else None
+                trade.entry_explanation = (
+                    f"{trade.direction} filter and trigger passed at {signal.timestamp}; "
+                    + (f"setup triggered after {age} observed bars. " if age is not None else "")
+                    + "Entry filled at the next observed open."
+                )
+            if closed:
+                matched = (
+                    linked.matched_exit_reasons.dropna()
+                    if "matched_exit_reasons" in linked
+                    else pd.Series(dtype=str)
+                )
+                reasons = (
+                    str(matched.iloc[-1]).replace("_", " ").replace(";", ", ")
+                    if not matched.empty
+                    else reason
+                )
+                trade.exit_explanation = f"Matched exit reasons: {reasons}. Primary: {reason}."
+            else:
+                trade.exit_explanation = "Position remains open at the evaluation end."
     markers = []
     for trade in trades:
         linked = fills[fills.order_id.isin(trade.order_ids)]
@@ -218,7 +267,11 @@ def load_run(folder: Path) -> RunReport:
         indicators.append(
             {
                 "time": seconds(row["timestamp"]),
-                **{k: float(row[k]) for k in ("fast", "slow", "atr") if pd.notna(row[k])},
+                **{
+                    k: float(value)
+                    for k, value in row.items()
+                    if k != "timestamp" and pd.notna(value)
+                },
             }
         )
     stops = []
@@ -260,7 +313,9 @@ def load_run(folder: Path) -> RunReport:
         manifest,
         trades,
         events,
-        ChartSeries(candles, indicators, markers, stops, performance),
+        ChartSeries(
+            candles, indicators, markers, stops, performance, indicator_definitions(config)
+        ),
         trade_metrics(trades, equity, config.initial_equity_usd),
         unavailable,
     )
@@ -268,7 +323,7 @@ def load_run(folder: Path) -> RunReport:
 
 def chart_payload(report: RunReport) -> dict:
     return dict(
-        version=1,
+        version=2,
         run_id=report.run_id,
         symbol=report.summary["symbol"],
         **asdict(report.chart),
@@ -276,6 +331,28 @@ def chart_payload(report: RunReport) -> dict:
         events=[asdict(e) for e in report.events],
         halt_limit=report.config.max_drawdown_fraction * 100,
     )
+
+
+def indicator_definitions(config: StrategyConfig) -> list[dict]:
+    if config.builder is None:
+        return [
+            dict(key="fast", label=f"SMA({config.fast_period})", pane="price"),
+            dict(key="slow", label=f"SMA({config.slow_period})", pane="price"),
+            dict(key="atr", label=f"ATR({config.atr_period})", pane="atr"),
+        ]
+    operands = [
+        operand
+        for condition in config.builder.conditions()
+        for operand in (condition.left, condition.right)
+        if operand.period
+    ]
+    definitions = {
+        operand.key: dict(
+            key=operand.key, label=f"{operand.kind.upper()}({operand.period})", pane="price"
+        )
+        for operand in operands
+    }
+    return [*definitions.values(), dict(key="atr", label=f"ATR({config.atr_period})", pane="atr")]
 
 
 def trade_table(trades: list[TradeRecord], timezone: str) -> pd.DataFrame:

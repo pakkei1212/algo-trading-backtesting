@@ -1,5 +1,6 @@
 """Integrated Strategy Tester; accounting is owned by reporting, execution by Nautilus."""
 
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -7,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from mnq_research.chart_component import ChartRenderer, register_chart, render_chart
+from mnq_research.criteria import strategy_summary
 from mnq_research.reporting import (
     RunReport,
     TradeRecord,
@@ -321,6 +323,9 @@ def trades_panel(report: RunReport, folder: Path, timezone: str) -> None:
         with st.container(border=True):
             st.subheader(f"Trade {trade.number} · {trade.direction} · {trade.status}")
             st.write(f"Exit reason: {trade.exit_reason}")
+            if report.config.builder:
+                st.write(f"Entry: {trade.entry_explanation}")
+                st.write(f"Exit: {trade.exit_explanation}")
             st.caption(
                 f"Exact entry: {trade.entry_time} · Exact exit: {trade.exit_time or 'Still open'}"
             )
@@ -335,6 +340,8 @@ def trades_panel(report: RunReport, folder: Path, timezone: str) -> None:
             else:
                 st.caption("No recorded protective-stop interval available.")
             start, end = utc(trade.entry_time), utc(trade.exit_time or report.summary["last_bar"])
+            if trade.signal_time:
+                start = utc(trade.signal_time)
             events = [
                 e.detail
                 for e in report.events
@@ -409,6 +416,9 @@ def render_results(folder: Path) -> None:
             trades_panel(report, folder, timezone)
         with settings_tab:
             st.caption("These are the immutable assumptions saved with this run.")
+            if report.config.builder:
+                for line in strategy_summary(report.config.builder):
+                    st.write(line)
             settings = report.config.model_dump(mode="json")
             st.dataframe(
                 pd.DataFrame(
@@ -453,6 +463,17 @@ def render_results(folder: Path) -> None:
             ]:
                 with st.expander(f"Raw {name.replace('_', ' ')}"):
                     st.dataframe(read_report(folder, name), hide_index=True, width="stretch")
+            if report.config.builder:
+                traces = [e for e in report.events if e.reason == "criteria_evaluation"]
+                if traces:
+                    with st.expander("Condition evaluations (values and pass/fail)"):
+                        picked = st.selectbox(
+                            "Completed-bar decision",
+                            traces,
+                            format_func=lambda e: display_time(e.timestamp, timezone),
+                            key=f"trace:{run_id}",
+                        )
+                        st.json(json.loads(picked.detail["conditions_json"]))
             with st.expander("Summary and reproduction metadata"):
                 st.json(s)
                 st.json(report.manifest)

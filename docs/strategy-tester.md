@@ -112,3 +112,11 @@ changes to editable source modules are included in its watcher.
 
 Drawings, replay, alternative simulation timeframes, advanced ratios, benchmarks and
 monthly/distribution analytics remain outside this release.
+
+## Entry and exit explanations
+
+Builder runs show concise entry and exit explanations in selected trade details.
+Diagnostics includes completed-bar condition values and pass/fail results. Chart
+averages follow the saved strategy's SMA/EMA periods. See
+[Strategy builder](strategy-builder.md) for setup windows, ALL/ANY semantics and exit
+precedence. Legacy runs retain their existing results and mark missing history unavailable.

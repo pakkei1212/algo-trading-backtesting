@@ -12,6 +12,10 @@ saved runs, credentials and local dependencies are also excluded from Git.
 For browser sharing, see [Streamlit Community Cloud deployment](docs/streamlit-cloud.md).
 Cloud mode supports session-isolated CSV uploads, backtests and downloadable results.
 
+For hourly filters, pullback setups and configurable entry/exit groups, see the
+[strategy builder guide](docs/strategy-builder.md). Choose the supplied
+`trend_pullback.yaml` preset in Configure & run to start editing.
+
 ## Setup (Windows PowerShell)
 
 Install Python **3.12** and run these commands from this directory:
