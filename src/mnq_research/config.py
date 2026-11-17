@@ -32,6 +32,7 @@ class StrategyConfig(BaseModel):
     max_contracts: int = Field(default=2, ge=1, le=100)
     fixed_contracts: int = Field(default=1, ge=1, le=100)
     max_drawdown_fraction: float = Field(default=0.1, gt=0, lt=1)
+    drawdown_halt_enabled: bool = True
     # Required: there is no implicit free execution or assumed exchange margin.
     commission_per_side_usd: float = Field(ge=0)
     # The pinned native OHLC fill model supports zero or one adverse tick.

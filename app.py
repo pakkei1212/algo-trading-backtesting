@@ -290,8 +290,12 @@ with build_tab:
                 risk = st.number_input("Risk per trade (%)", 0.01, 100.0, base.risk_fraction * 100)
                 maximum = st.number_input("Maximum contracts", 1, 100, base.max_contracts)
                 fixed = st.number_input("Fixed contracts", 1, 100, base.fixed_contracts)
+                halt_enabled = st.checkbox(
+                    "Enable account drawdown halt", base.drawdown_halt_enabled
+                )
                 halt = st.number_input(
-                    "Drawdown halt (%)", 0.1, 99.0, base.max_drawdown_fraction * 100
+                    "Drawdown threshold (%)", 0.1, 99.0, base.max_drawdown_fraction * 100,
+                    help="Used for diagnostics when the account drawdown halt is disabled.",
                 )
             with third:
                 st.subheader("Execution assumptions")
@@ -372,6 +376,7 @@ with build_tab:
                         "max_contracts": maximum,
                         "fixed_contracts": fixed,
                         "max_drawdown_fraction": halt / 100,
+                        "drawdown_halt_enabled": halt_enabled,
                         "commission_per_side_usd": fee,
                         "slippage_ticks": slip,
                         "margin_per_contract_usd": margin,

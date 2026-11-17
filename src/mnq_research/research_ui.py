@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from mnq_research.experiment_ui import render_experiment
+from mnq_research.variant_comparison_ui import render_comparison
 
 
 def render_research(root: Path, *, cloud: bool) -> None:
@@ -36,6 +37,19 @@ def render_research(root: Path, *, cloud: bool) -> None:
             continue
         if "folds" in contents:
             studies[path.parent.name] = contents
+    comparison_folders = sorted(
+        path.parent for path in (root / "runs" / "cash-research").glob("*/comparison.sqlite")
+        if (path.parent / "manifest.json").exists()
+    )
+    if comparison_folders:
+        view = st.radio("Research view", ("All variants comparison", "Selection-policy studies"),
+                        horizontal=True)
+        if view == "All variants comparison":
+            folder = st.selectbox(
+                "Comparison study", comparison_folders, format_func=lambda path: path.name
+            )
+            render_comparison(folder)
+            return
     if not studies:
         st.info("Run a local walk-forward study to see fold results.")
         return
