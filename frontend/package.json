@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && esbuild src/chart.ts --bundle --format=esm --target=es2022 --outfile=../src/mnq_research/chart_assets/chart.js",
-    "test": "esbuild src/ranges.ts --bundle --format=esm --platform=node --outfile=.test-build/ranges.mjs && node --test tests/*.test.mjs",
+    "test": "esbuild src/ranges.ts src/indicator-values.ts --bundle --format=esm --platform=node --outdir=.test-build --out-extension:.js=.mjs && node --test tests/*.test.mjs",
     "format": "prettier --write src tests",
     "format:check": "prettier --check src tests"
   },

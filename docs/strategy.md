@@ -1,5 +1,9 @@
 # Hourly SMA / ATR baseline
 
+For configurable filters, sequential setups and independent exits, see
+[the hourly strategy builder](strategy-builder.md). The original SMA rules below
+remain available through the existing baseline presets.
+
 This is a transparent research baseline, not a claim of market advantage.
 
 The default uses 2% equity risk per trade and a 1×ATR stop. With the starting USD 10,000
@@ -16,9 +20,17 @@ Indicators warm up before entries. ATR is seeded from the first N true ranges an
 updated by Wilder smoothing. True range includes gaps from the previous close.
 
 An entry executes at the next observed open. The ATR distance from the signal is rounded
-up to a whole MNQ tick. A fixed stop is anchored to the actual slipped entry fill. An
+up to a whole MNQ tick. The initial stop is anchored to the actual slipped entry fill. An
 opposite crossover exits at the next open; it does not immediately reverse. A fresh cross
 is required to re-enter. Stops remain active overnight and across weekends.
+
+The optional R-based trail is off by default. One R is the distance in points from
+the actual entry fill to the initial ATR stop. By default, a completed close at +2R
+activates the trail and the stop follows the best favorable close by 1R. A long stop
+rounds down to a tick and a short stop rounds up. Updates only tighten the stop and
+apply after the triggering bar. A drawdown halt or opposite crossover takes priority
+over a trail update at the same close. Trade details show the activation, accepted
+updates, and whether the initial or trailing stop filled.
 
 Percentage sizing floors equity times the risk fraction divided by stop distance times
 USD 2 plus estimated round-trip commissions and slippage. A fixed-contract option is also

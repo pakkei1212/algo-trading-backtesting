@@ -20,17 +20,16 @@ completed by the account owner.
 
 ## Your friend's workflow
 
-1. Wait for one year of hourly rolling Yahoo `MNQ=F` history to preload. Its coverage
-   dates are displayed. Alternatively, upload a real CSV and provide its source and MNQ symbol.
+1. Upload an MNQ CSV and provide its source, symbol, and bar interval (5m, 15m, 30m or 1h).
 2. For a CSV, choose a dated contract and enter its actual expiration, or choose a rolling
    proxy and acknowledge its exploratory nature.
 3. Choose a preset, review the strategy settings, and click Run backtest.
 4. Inspect charts/trades; download strategy YAML and the complete run ZIP to keep them.
 
 The CSV requires exactly these columns:
-`timestamp,open,high,low,close,volume`. Use completed hourly bars labeled at their
-close, with a timezone offset on every timestamp. Prices must use the MNQ 0.25-point
-tick grid; volume is nonnegative whole contracts. Bars must be sorted, unique,
+`timestamp,open,high,low,close,volume`. Use completed bars labeled at their close, with a
+timezone offset on every timestamp, and select the matching interval in the upload form.
+Prices must use the MNQ 0.25-point tick grid; volume is nonnegative whole contracts. Bars must be sorted, unique,
 nonoverlapping and valid OHLC observations. Exchange closures remain gaps.
 Use your provider's actual contract expiration rather than copying an example.
 No market dataset is redistributed through GitHub.
@@ -40,17 +39,16 @@ No market dataset is redistributed through GitHub.
 Cloud mode stores files in a generated temporary directory for each Streamlit
 session. It never reads the desktop `data/` or `runs/` directories. Repository
 configuration presets are read-only; saved configurations belong to the session.
-One session cannot select another session's uploaded data or run results. The public
-Yahoo history is cached in memory for one hour and copied into each session's workspace.
-It is a rolling research proxy, not verified dated-contract history. Unfinished bars
-and invalid provider rows are excluded by the existing importer. Preload runs once
-per session and never replaces an uploaded dataset. On provider failure, retry or upload
-your own CSV. Datasets remain excluded from GitHub.
+One session cannot select another session's uploaded data or run results. Yahoo downloads
+are disabled in cloud mode because Yahoo prohibits redistribution of its Finance data.
+Visitors upload data from a source they are authorized to use. Datasets remain excluded
+from GitHub.
 
-Uploads are limited to 10 MiB and 10,000 bars. A new valid upload replaces the
-session's previous dataset. Existing runs contain their own data snapshot. Only
-the latest five successful runs are retained. One backtest runs at a time per
-app process; other sessions receive a retry message. Failed partial runs are removed.
+Uploads are limited to 10 MiB and 15,000 bars. Each session can retain up to five datasets;
+new uploads do not delete older ones. Clear the session to remove its temporary files.
+Existing runs contain their own data snapshot. Only the latest five successful runs are
+retained. One backtest runs at a time per app process; other sessions receive a retry
+message. Failed partial runs are removed.
 
 Downloads contain the saved YAML or a ZIP with bars, config, manifest, summary,
 equity, positions, orders, fills, decisions, indicators and protective-stop history.

@@ -30,7 +30,7 @@ undefined denominator, displayed as **—**, including an all-winning sample. Wi
 includes breakevens in the closed-trade count. Open positions are excluded from these
 closed-trade metrics. Their realized entry fees and unrealized P&L still affect equity.
 
-Drawdown monitoring remains hourly at bar closes. A halt blocks new entries for the
+Drawdown monitoring occurs at each completed bar close. A halt blocks new entries for the
 rest of that run and schedules liquidation at the next observed open. The report shows
 the trigger time, observed drawdown and configured limit. The evaluation continues
 through the saved data period, even when trading has stopped.
@@ -62,7 +62,7 @@ The default display timezone is **America/New_York**, including daylight saving.
 and UTC are available. UTC timestamps retain ordering; changing timezone changes labels
 only. Candles are labeled by open time; recorded close-known indicator values are shown
 at their availability time. Exact nanosecond fill times are retained in details, while
-fill markers attach to the associated hourly candle. No intrabar tick chronology is implied.
+fill markers attach to the associated timeframe candle. No intrabar tick chronology is implied.
 Stop segments run only between recorded acceptance and terminal events (or evaluation end).
 
 View ranges and overlay settings persist per run and chart in the browser session.
@@ -78,7 +78,7 @@ New runs include `observations.csv`, `protective_orders.csv`, fill exit reasons 
 `report_version: 2` in the manifest. The added records do not alter simulation decisions.
 
 The existing full-year baseline and the first instrumented run reconcile exactly on
-summary, equity, decisions, fill prices, quantities and costs. Hourly rolling MNQ history
+summary, equity, decisions, fill prices, quantities and costs. Yahoo rolling MNQ history
 remains exploratory; this interface does not add dated-contract rollover economics.
 
 ## Frontend maintenance
@@ -112,3 +112,11 @@ changes to editable source modules are included in its watcher.
 
 Drawings, replay, alternative simulation timeframes, advanced ratios, benchmarks and
 monthly/distribution analytics remain outside this release.
+
+## Entry and exit explanations
+
+Builder runs show concise entry and exit explanations in selected trade details.
+Diagnostics includes completed-bar condition values and pass/fail results. Chart
+averages follow the saved strategy's SMA/EMA periods. See
+[Strategy builder](strategy-builder.md) for setup windows, ALL/ANY semantics and exit
+precedence. Legacy runs retain their existing results and mark missing history unavailable.

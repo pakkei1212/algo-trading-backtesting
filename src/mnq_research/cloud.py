@@ -15,10 +15,11 @@ import pandas as pd
 
 from mnq_research.backtest import run_backtest
 from mnq_research.config import StrategyConfig
-from mnq_research.data import BAR_COLUMNS, validate_bars, write_dataset
+from mnq_research.data import BAR_COLUMNS, interval_duration, validate_bars, write_dataset
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-MAX_BARS = 10_000
+MAX_BARS = 15_000
+MAX_DATASETS = 5
 MAX_RUNS = 5
 BACKTEST_LOCK = Lock()
 
@@ -44,24 +45,28 @@ def import_upload(
     kind: str,
     expiry: str = "",
     acknowledge_proxy: bool = False,
+    bar_interval: str = "1h",
 ) -> Path:
     """Validate fully before writing; filenames and paths are generated internally."""
     if not content or len(content) > MAX_UPLOAD_BYTES:
         raise ValueError("Upload a nonempty CSV no larger than 10 MB")
     if not source.strip():
         raise ValueError("Enter the market-data source")
+    interval_duration(bar_interval)
     frame = pd.read_csv(io.BytesIO(content), nrows=MAX_BARS + 1)
     if len(frame) > MAX_BARS:
-        raise ValueError("Cloud uploads are limited to 10,000 hourly bars")
+        raise ValueError(f"Cloud uploads are limited to {MAX_BARS:,} bars")
     if set(frame.columns) != {"timestamp", *BAR_COLUMNS}:
         raise ValueError("CSV requires exactly timestamp, open, high, low, close, volume")
     parsed = [pd.Timestamp(value) for value in frame.pop("timestamp")]
     if not parsed or any(value.tz is None for value in parsed):
         raise ValueError("Every bar-close timestamp must include a timezone offset")
     frame.index = pd.DatetimeIndex(pd.to_datetime(parsed, utc=True))
-    frame = validate_bars(frame)
+    frame = validate_bars(frame, bar_interval)
     symbol = symbol.strip()
-    metadata = dict(kind=kind, symbol=symbol, source=source.strip())
+    metadata = dict(
+        kind=kind, symbol=symbol, source=source.strip(), bar_interval=bar_interval
+    )
     if kind == "dated_contract":
         if not re.fullmatch(r"MNQ[HMUZ]\d{1,2}", symbol):
             raise ValueError("Enter a dated MNQ symbol, for example MNQZ6")
@@ -79,13 +84,13 @@ def import_upload(
     else:
         raise ValueError("Choose dated contract or rolling proxy")
     metadata["original_file_sha256"] = hashlib.sha256(content).hexdigest()
+    existing = list((workspace.root / "data").glob("*/metadata.json"))
+    if len(existing) >= MAX_DATASETS:
+        raise ValueError(
+            f"This session already has {MAX_DATASETS} datasets; clear the session to reset"
+        )
     folder = workspace.root / "data" / uuid4().hex
-    # One uploaded dataset per session bounds storage. Completed runs retain their own bars.
-    result = write_dataset(frame, folder, metadata)
-    for old in folder.parent.iterdir():
-        if old != folder:
-            shutil.rmtree(old)
-    return result
+    return write_dataset(frame, folder, metadata)
 
 
 def run_cloud_backtest(

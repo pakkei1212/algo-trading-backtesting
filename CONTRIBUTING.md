@@ -22,9 +22,12 @@ it. Type public functions and explain why non-obvious financial decisions exist.
 5. Connect the component to the event-driven strategy and add a small engine test.
 6. Expose the configuration in the dashboard without duplicating trading calculations.
 
-The initial entry registry contains one SMA rule. Exit and risk logic remain explicit
-functions; introduce registries for them when a second implementation is actually added.
-Plugins are developer-authored Python, not dynamically executed user text.
+The original SMA entry registry remains available. `criteria.py` defines validated
+declarative conditions; `rule_engine.py` calculates completed-bar indicators and tracks
+setup windows. Extend those explicit models/evaluators for new supported operands or
+operators. Strategy decisions never submit simulated fills; Nautilus handles execution.
+Plugins are developer-authored Python, not dynamically executed user text. Keep the
+generated strategy summary and `docs/strategy-builder.md` consistent with each new rule.
 
 ## Verification
 
@@ -35,7 +38,7 @@ Plugins are developer-authored Python, not dynamically executed user text.
 .\.venv\Scripts\python.exe -m mypy
 ```
 
-Static typing initially covers the pure configuration/risk/rule layer. NautilusTrader's
+Static typing covers the pure configuration/risk/rule and builder-evaluation layers. NautilusTrader's
 Cython event boundary is verified by integration tests; do not claim whole-project strict
 typing. Fixtures are synthetic **software test cases**, not strategy performance evidence.
 
@@ -49,7 +52,8 @@ Do not alter the independent `tradingview-mcp/` tree for ordinary Python changes
 ## Strategy configurations and branches
 
 Git tracks only the supplied presets: `configs/baseline.yaml`,
-`configs/conservative_baseline.yaml`, and `configs/fixed_contract_diagnostic.yaml`.
+`configs/conservative_baseline.yaml`, `configs/fixed_contract_diagnostic.yaml`, and
+`configs/trend_pullback.yaml`.
 All other files and directories under `configs/` are ignored. Personal configurations
 remain available to the local app; removing a file from Git tracking does not delete
 its local copy. Keep your own backups of personal configurations. A new supplied

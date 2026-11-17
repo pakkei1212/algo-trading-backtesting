@@ -24,6 +24,18 @@ function initialRange(times, executionTimes) {
   };
 }
 
+// src/indicator-values.ts
+function availableIndicators(observations, cursorTime) {
+  let low = 0;
+  let high = observations.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (observations[middle].time <= cursorTime) low = middle + 1;
+    else high = middle;
+  }
+  return low ? observations[low - 1] : void 0;
+}
+
 // node_modules/fancy-canvas/size.mjs
 function size(_a) {
   var width = _a.width, height = _a.height;
@@ -6727,7 +6739,13 @@ var green = "#089981";
 var red = "#ef5350";
 var blue = "#2962ff";
 function render({ data, parentElement, setStateValue }) {
-  if (data.version !== 1) throw new Error("Unsupported chart data version");
+  if (![1, 2].includes(data.version))
+    throw new Error("Unsupported chart data version");
+  const indicatorDefinitions = data.indicator_definitions || [
+    { key: "fast", label: "Fast SMA", pane: "price" },
+    { key: "slow", label: "Slow SMA", pane: "price" },
+    { key: "atr", label: "ATR", pane: "atr" }
+  ];
   const previous = parentElement.querySelector(".workspace");
   previous?.dispose?.();
   previous?.remove();
@@ -6747,7 +6765,7 @@ function render({ data, parentElement, setStateValue }) {
     stops: true,
     markers: true,
     auto: true,
-    line: false,
+    closeLine: false,
     drawdown: true,
     metric: "equity",
     ...stored.settings
@@ -6778,7 +6796,7 @@ function render({ data, parentElement, setStateValue }) {
   }
   const heading = element(
     "div",
-    `${data.symbol} \xB7 1h \xB7 ${data.timezone} \xB7 ${data.mode === "price" ? "Price & strategy" : "Performance"}`
+    `${data.symbol} \xB7 ${data.bar_interval} \xB7 ${data.timezone} \xB7 ${data.mode === "price" ? "Price & strategy" : "Performance"}`
   );
   heading.className = "chart-heading";
   const toolbar = element("div");
@@ -6804,7 +6822,7 @@ function render({ data, parentElement, setStateValue }) {
   attribution.rel = "noopener";
   element(
     "span",
-    " \xB7 TradingView Lightweight Charts\u2122 \xB7 Copyright (\u0441) 2025 TradingView, Inc. \xB7 Hourly simulation.",
+    " \xB7 TradingView Lightweight Charts\u2122 \xB7 Copyright (\u0441) 2025 TradingView, Inc. \xB7 Research simulation.",
     footer
   );
   function save() {
@@ -6942,7 +6960,7 @@ function render({ data, parentElement, setStateValue }) {
     ctx.fillStyle = getComputedStyle(root).color;
     ctx.font = "14px sans-serif";
     ctx.fillText(
-      `${data.symbol} \xB7 1h \xB7 ${data.timezone} \xB7 ${data.run_id}`,
+      `${data.symbol} \xB7 ${data.bar_interval} \xB7 ${data.timezone} \xB7 ${data.run_id}`,
       12,
       22
     );
@@ -6962,8 +6980,18 @@ function render({ data, parentElement, setStateValue }) {
     a2.click();
   });
   if (data.mode === "price") {
-    toggle("Close line", "line");
-    toggle("SMA", "sma");
+    const displayLabel = () => settings.closeLine ? "Price: Close line (show candles)" : "Price: Candles (show close line)";
+    const displayButton = button(
+      displayLabel(),
+      () => {
+        settings.closeLine = !settings.closeLine;
+        displayButton.textContent = displayLabel();
+        save();
+        build();
+      },
+      controls
+    );
+    toggle("Strategy averages", "sma");
     toggle("Stops", "stops");
     toggle("Executions", "markers");
     toggle("Volume", "volume");
@@ -7037,7 +7065,7 @@ function render({ data, parentElement, setStateValue }) {
       localization: { timeFormatter: (t) => format(Number(t)) }
     });
     if (data.mode === "price") {
-      if (settings.line) {
+      if (settings.closeLine) {
         priceSeries = chart.addSeries(Qn, {
           color: blue,
           priceFormat: { type: "price", precision: 2, minMove: 0.25 }
@@ -7057,16 +7085,15 @@ function render({ data, parentElement, setStateValue }) {
         priceSeries.setData(candles.map((c2) => ({ ...c2, time: time(c2.time) })));
       }
       if (settings.sma) {
-        for (const [key, color] of [
-          ["fast", "#00bcd4"],
-          ["slow", "#ab47bc"]
-        ]) {
+        const palette = ["#00bcd4", "#ab47bc", "#2962ff", "#ff9800"];
+        for (const [index, definition] of indicatorDefinitions.filter((d2) => d2.pane === "price").entries()) {
+          const key = definition.key;
           const series = chart.addSeries(Qn, {
-            color,
+            color: palette[index % palette.length],
             lineWidth: 2,
             priceLineVisible: false,
             lastValueVisible: false,
-            title: key + " SMA"
+            title: definition.label
           });
           series.setData(
             data.indicators.filter((p2) => p2[key] !== void 0).map((p2) => ({ time: time(p2.time), value: p2[key] }))
@@ -7141,6 +7168,22 @@ function render({ data, parentElement, setStateValue }) {
           id: "halt"
         });
       }
+      for (const event of data.events) {
+        if (event.reason !== "contract_switch") continue;
+        const candle = candles.find(
+          (c2) => c2.time >= timestamp(event.timestamp)
+        );
+        if (candle) {
+          markers.push({
+            time: time(candle.time),
+            text: `Roll to ${event.detail?.contract ?? "next contract"}`,
+            position: "aboveBar",
+            shape: "square",
+            color: "#64748b",
+            id: `roll:${event.timestamp}`
+          });
+        }
+      }
       markers.sort((a2, b2) => Number(a2.time) - Number(b2.time));
       const plugin = ur(priceSeries, markers);
       seriesToClean.push(() => plugin.detach());
@@ -7193,13 +7236,15 @@ function render({ data, parentElement, setStateValue }) {
     chart.subscribeCrosshairMove((param) => {
       if (!param.time) return;
       const t = Number(param.time), c2 = candles.find((c3) => c3.time === t);
-      const indicator = data.indicators.find((p2) => p2.time === t);
+      const indicator = availableIndicators(data.indicators, t);
       const matches = data.markers.filter((m2) => m2.time === t);
       let message = format(t);
       if (c2)
         message += ` \xB7 O ${c2.open.toFixed(2)} H ${c2.high.toFixed(2)} L ${c2.low.toFixed(2)} C ${c2.close.toFixed(2)} \xB7 Vol ${c2.volume.toLocaleString()}`;
       if (indicator)
-        message += ` \xB7 Fast ${indicator.fast?.toFixed(2) ?? "\u2014"} Slow ${indicator.slow?.toFixed(2) ?? "\u2014"} ATR ${indicator.atr?.toFixed(2) ?? "\u2014"} (last completed bar)`;
+        message += " \xB7 " + indicatorDefinitions.map(
+          (definition) => `${definition.label} ${indicator[definition.key]?.toFixed(2) ?? "\u2014"}`
+        ).join(" \xB7 ") + " (last completed bar)";
       if (data.mode === "performance") {
         const p2 = data.performance.find((p3) => p3.time === t);
         if (p2)
