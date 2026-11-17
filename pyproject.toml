@@ -16,6 +16,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+optimization = ["optuna==4.6.0"]
+amp-mt5 = ["MetaTrader5==5.0.6231; sys_platform == 'win32'"]
 dev = ["pytest==9.1.1", "ruff==0.17.0", "mypy==2.4.0", "types-PyYAML"]
 
 [project.scripts]

@@ -1,4 +1,4 @@
-# Hourly entry and exit builder
+# Entry and exit builder
 
 Choose `trend_pullback.yaml` under **Saved configuration**, or switch **Strategy
 construction** to **Condition builder**. The supplied template is long-only and uses
@@ -23,7 +23,7 @@ from the end. Groups are flat: there are no nested expressions in this release.
 Each row compares a left operand with a right operand. Choose Open, High, Low, Close,
 SMA, EMA, ATR, or a numeric value. SMA and EMA have separate periods. ATR uses the
 **ATR bars** setting in Protective stop. Prices and ATR are in index points.
-**Bars earlier** counts observed bars, not elapsed hours. Zero is the completed bar.
+**Bars earlier** counts observed bars, not elapsed clock time. Zero is the completed bar.
 
 - **Above/below** are strict comparisons. Equality does not pass.
 - **Crosses above** means previously at or below and now strictly above.
@@ -69,11 +69,12 @@ Indicators and conditions use completed bars only. SMA uses a full close window.
 EMA starts with an N-close SMA, then uses alpha = 2/(N+1). ATR starts with the mean of
 N true ranges, then uses Wilder smoothing. Evaluation starts retain the full available
 indicator prefix for builder strategies, but do not carry setups or positions from it.
-Hourly lookbacks are not daily lookbacks; no daily session aggregation is included.
+Lookbacks remain tied to the selected input interval; no higher-timeframe or daily
+session aggregation is included.
 
 Protective stops remain active while an exit is pending. An already-filled stop discards
 the redundant pending exit. Gap losses can exceed the estimated risk. Native Nautilus
-OHLC simulation determines fills; hourly candles cannot establish intrabar chronology.
+OHLC simulation determines fills; candles cannot establish intrabar chronology.
 At the last data bar, pending orders remain pending and open positions are marked to
 market. No terminal liquidation is invented.
 

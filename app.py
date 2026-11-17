@@ -8,20 +8,24 @@ import pandas as pd
 import streamlit as st
 import yaml
 
+from mnq_research.amp_mt5 import BAR, expected_closes, regular_coverage_counts, utc
 from mnq_research.backtest import run_backtest
 from mnq_research.builder_ui import render_builder
 from mnq_research.cloud import run_cloud_backtest
 from mnq_research.cloud_ui import (
     deployment_mode,
     download_run,
-    preload_market_data,
     session_workspace,
     upload_panel,
 )
 from mnq_research.config import StrategyConfig, load_config, save_config
-from mnq_research.data import load_dataset
+from mnq_research.data import interval_duration, load_dataset, refresh_yahoo_archive
+from mnq_research.optimization_ui import render_optimizer
+from mnq_research.research_ui import render_research
 from mnq_research.results_ui import render_results
 from mnq_research.risk import maximum_stop_by_risk
+from mnq_research.roll_backtest import load_continuous, roll_grid
+from mnq_research.run_labels import format_run_label
 
 ROOT = Path(__file__).resolve().parent
 st.set_page_config(page_title="MNQ Research", page_icon="📈", layout="wide")
@@ -45,8 +49,11 @@ if CLOUD:
         workspace.close()
         st.session_state.clear()
         st.rerun()
-build_tab, results_tab, compare_tab = st.tabs(
-    ["Configure & run", "Inspect results", "Compare runs"]
+build_tab, results_tab, compare_tab, optimize_tab, research_tab = st.tabs(
+    [
+        "Configure & run", "Inspect results", "Compare runs", "Optimize Parameters",
+        "Research studies",
+    ]
 )
 
 
@@ -59,9 +66,33 @@ def read_csv(path: Path) -> pd.DataFrame:
 
 with build_tab:
     if workspace:
-        preload_market_data(workspace)
         upload_panel(workspace)
+    else:
+        with st.expander("Yahoo rolling MNQ 5-minute archive"):
+            st.caption(
+                "Fetch Yahoo's latest 60-day window and append it to a local archive. "
+                "Previously downloaded bars and snapshots are retained. Rolling data is "
+                "exploratory and is not redistributed by the public app."
+            )
+            if st.button("Refresh Yahoo MNQ 5-minute history"):
+                try:
+                    with st.spinner("Fetching and merging Yahoo's 5-minute history…"):
+                        archive, refresh = refresh_yahoo_archive(ROOT / "data" / "yahoo-mnq-5m")
+                    st.success(
+                        f"Added {refresh['added_bars']:,} bars; "
+                        f"{refresh['revised_overlap_bars']:,} overlapping bars changed; "
+                        f"{refresh['total_bars']:,} total bars across "
+                        f"{refresh['snapshot_count']} preserved downloads."
+                    )
+                    st.caption(
+                        f"Archive: {archive} · {refresh['first_close_utc']} → "
+                        f"{refresh['last_close_utc']}"
+                    )
+                except (ValueError, OSError, KeyError) as error:
+                    st.error(f"Yahoo refresh failed; existing archive was retained: {error}")
     datasets = sorted((WORK / "data").glob("*/metadata.json"))
+    if not CLOUD:
+        datasets += sorted((WORK / "data" / "continuous-research").glob("*/manifest.json"))
     if not datasets:
         st.info(
             "Upload real market data above."
@@ -70,12 +101,19 @@ with build_tab:
         )
     # Snapshot labels: a new upload may remove a previously selected dataset before rerun.
     dataset_labels = {}
+    amp_range = None
     for path in datasets:
         if CLOUD:
             info = json.loads(path.read_text(encoding="utf-8"))
             dataset_labels[path] = f"{info['symbol']} · {info['source']}"
         else:
             dataset_labels[path] = path.parent.name
+            if path.name == "manifest.json":
+                version = path.parent.name.rsplit("-", 1)[-1]
+                dataset_labels[path] = f"MNQ continuous · 5m · {version}"
+            elif path.parent.name.startswith("amp-"):
+                info = json.loads(path.read_text(encoding="utf-8"))
+                dataset_labels[path] = f"{info['symbol']} · AMP MT5 · 5m · {info['quality']}"
     selected = st.selectbox(
         "Historical dataset",
         datasets,
@@ -83,14 +121,79 @@ with build_tab:
     )
     if selected:
         try:
-            bars, metadata = load_dataset(selected.parent)
+            if selected.name == "manifest.json":
+                bars, metadata = load_continuous(selected.parent)
+            else:
+                bars, metadata = load_dataset(selected.parent)
             if metadata["kind"] == "rolling_proxy":
                 st.warning(
                     "Rolling MNQ proxy: exploratory results; contract identity is unverified."
                 )
-            st.write(f"{len(bars):,} hourly bars · {bars.index[0]} → {bars.index[-1]}")
+            bar_interval = metadata.get("bar_interval", "1h")
+            st.write(
+                f"{len(bars):,} {bar_interval} bars · {bars.index[0]} → {bars.index[-1]}"
+            )
+            interval_minutes = int(interval_duration(bar_interval).total_seconds() // 60)
+            st.caption(
+                f"Indicator and setup periods use bars: each bar is {interval_minutes} minutes."
+            )
+            if metadata.get("provider") == "amp_mt5":
+                coverage = json.loads((selected.parent / "coverage.json").read_text("utf-8"))
+                if "coverage_start_utc" not in coverage:
+                    cutoff = utc(coverage["effective_end_utc"])
+                    if cutoff == utc(metadata["expiry_utc"]):
+                        cutoff -= BAR
+                    coverage.update(
+                        regular_coverage_counts(
+                            bars, utc(coverage["requested_start_utc"]), cutoff
+                        )
+                    )
+                ranges = sorted(
+                    (pair for pair in coverage["eligible_ranges"] if pair[0] != pair[1]),
+                    key=lambda pair: utc(pair[1]) - utc(pair[0]),
+                    reverse=True,
+                )
+                st.caption(
+                    f"AMP coverage: {coverage['status']} · "
+                    f"{coverage['missing_regular_bars']:,} missing regular-session bars "
+                    "from the first observed bar to the audit cutoff. Select a verified interval."
+                )
+                amp_range = st.selectbox(
+                    "Verified AMP interval (UTC)",
+                    ranges,
+                    format_func=lambda pair: f"{pair[0]} to {pair[1]}",
+                    key=f"amp-window:{selected.parent.name}",
+                )
+            if metadata.get("provider") == "continuous_mnq":
+                windows = sorted(
+                    (pair for pair in metadata["verified_ranges"] if pair[0] != pair[1]),
+                    key=lambda pair: utc(pair[1]) - utc(pair[0]),
+                    reverse=True,
+                )
+                st.caption("Positions close at the open of the last outgoing trading session.")
+                amp_range = st.selectbox(
+                    "Verified continuous interval (UTC)",
+                    windows,
+                    format_func=lambda pair: f"{pair[0]} to {pair[1]}",
+                    key=f"continuous-window:{selected.parent.name}",
+                )
             with st.expander("Data provenance and gaps"):
-                st.json(metadata)
+                if metadata.get("provider") == "amp_mt5":
+                    st.write(
+                        f"**Audit request (UTC)** · {coverage['requested_start_utc']} → "
+                        f"{coverage['requested_end_utc']}"
+                    )
+                    st.write(
+                        f"**Observed data (UTC)** · {coverage['first_observed']} → "
+                        f"{coverage['last_observed']}"
+                    )
+                    st.caption(
+                        "Months are grouped by New York time. Expected bars start at the "
+                        "first observed close and extend through the effective audit cutoff."
+                    )
+                    st.write("Holiday and other special sessions are outside verified intervals.")
+                    st.dataframe(pd.DataFrame.from_dict(coverage["monthly"], orient="index"))
+                st.json({k: v for k, v in metadata.items() if k != "eligible_ranges"})
         except (ValueError, OSError, KeyError) as error:
             st.error(str(error))
             selected = None
@@ -156,6 +259,19 @@ with build_tab:
                     slow = st.number_input("Slow SMA bars", 3, 2000, base.slow_period)
                 atr = st.number_input("ATR bars", 2, 1000, base.atr_period)
                 multiple = st.number_input("ATR stop multiple", 0.1, 20.0, base.atr_multiple)
+                trailing = False
+                activation_r = base.trailing_activation_r
+                distance_r = base.trailing_distance_r
+                if strategy_type == "SMA crossover baseline":
+                    trailing = st.checkbox(
+                        "Enable R-based trailing stop", base.trailing_stop_enabled
+                    )
+                    activation_r = st.number_input(
+                        "Activate after profit reaches (R)", value=activation_r, step=0.25
+                    )
+                    distance_r = st.number_input(
+                        "Trail distance (R)", value=distance_r, step=0.25
+                    )
                 direction = builder_direction
                 if strategy_type == "SMA crossover baseline":
                     directions = ["both", "long", "short"]
@@ -195,13 +311,28 @@ with build_tab:
                 proxy = st.checkbox(
                     "Allow exploratory rolling-contract data", base.allow_rolling_proxy
                 )
+                if amp_range and selected:
+                    calendar = roll_grid if selected.name == "manifest.json" else expected_closes
+                    expected = calendar(utc(amp_range[0]) - BAR, utc(amp_range[1])).index
+                    warmup_index = min(base.warmup_bars(), len(expected) - 1)
+                    start_default = expected[warmup_index].isoformat()
+                    end_default = expected[-1].isoformat()
+                    date_key = f"{selected.parent.name}:{amp_range[0]}"
+                else:
+                    start_default = base.start.isoformat() if base.start else ""
+                    end_default = base.end.isoformat() if base.end else ""
+                    date_key = "standard"
                 start = st.text_input(
-                    "Evaluation start (ISO date with timezone; blank = all)",
-                    base.start.isoformat() if base.start else "",
+                    "Evaluation start (ISO date with timezone)",
+                    start_default,
+                    key=f"evaluation-start:{editor_key}:{date_key}",
+                    help="AMP and continuous datasets require an explicit evaluation window.",
                 )
                 end = st.text_input(
-                    "Evaluation end (ISO date with timezone; blank = all)",
-                    base.end.isoformat() if base.end else "",
+                    "Evaluation end (ISO date with timezone)",
+                    end_default,
+                    key=f"evaluation-end:{editor_key}:{date_key}",
+                    help="AMP and continuous datasets require an explicit evaluation window.",
                 )
             st.caption(
                 (
@@ -231,6 +362,9 @@ with build_tab:
                         "slow_period": slow,
                         "atr_period": atr,
                         "atr_multiple": multiple,
+                        "trailing_stop_enabled": trailing,
+                        "trailing_activation_r": activation_r,
+                        "trailing_distance_r": distance_r,
                         "direction": direction,
                         "initial_equity_usd": capital,
                         "sizing_rule": sizing,
@@ -296,16 +430,16 @@ with build_tab:
 
 runs = sorted((WORK / "runs").glob("*/summary.json"), reverse=True)
 with results_tab:
-    chosen = st.selectbox("Saved run", runs, format_func=lambda path: path.parent.name)
+    chosen = st.selectbox("Saved run", runs, format_func=format_run_label)
     if chosen:
         if CLOUD:
             download_run(chosen.parent)
         render_results(chosen.parent)
 with compare_tab:
-    selections = st.multiselect("Runs to compare", runs, format_func=lambda path: path.parent.name)
+    selections = st.multiselect("Runs to compare", runs, format_func=format_run_label)
     if selections:
         comparison = [
-            {"run": path.parent.name, **json.loads(path.read_text(encoding="utf-8"))}
+            {"run": format_run_label(path), **json.loads(path.read_text(encoding="utf-8"))}
             for path in selections
         ]
         st.dataframe(pd.DataFrame(comparison).set_index("run").T.astype(str), width="stretch")
@@ -313,3 +447,9 @@ with compare_tab:
             "Check periods, datasets and assumptions before interpreting differences. "
             "Reserve unseen history before tuning; no automatic strategy ranking."
         )
+
+with optimize_tab:
+    render_optimizer(ROOT, cloud=CLOUD)
+
+with research_tab:
+    render_research(ROOT, cloud=CLOUD)

@@ -22,6 +22,9 @@ class StrategyConfig(BaseModel):
     fast_period: int = Field(default=20, ge=2, le=1000)
     slow_period: int = Field(default=50, ge=3, le=2000)
     atr_period: int = Field(default=14, ge=2, le=1000)
+    trailing_stop_enabled: bool = False
+    trailing_activation_r: float = Field(default=2.0, gt=0)
+    trailing_distance_r: float = Field(default=1.0, gt=0)
     atr_multiple: float = Field(default=1.0, gt=0)
     direction: Literal["both", "long", "short"] = "both"
     initial_equity_usd: float = Field(default=10000, gt=0)
@@ -40,6 +43,8 @@ class StrategyConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_periods(self) -> Self:
+        if self.trailing_stop_enabled and self.entry_rule != "sma_cross":
+            raise ValueError("R-based trailing stops require the SMA crossover baseline")
         if self.entry_rule == "criteria":
             if self.schema_version != 2 or self.exit_rule != "criteria" or self.builder is None:
                 raise ValueError(

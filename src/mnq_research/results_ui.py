@@ -44,13 +44,13 @@ def overview(
     # Wrap cards by available width rather than truncating dollar amounts on narrow windows.
     st.html("""
         <style>
-        .st-key-tester-summary [data-testid="stHorizontalBlock"] {flex-wrap:wrap}
-        .st-key-tester-summary [data-testid="stColumn"] {flex:1 1 160px;min-width:160px}
-        .st-key-tester-summary [data-testid="stMetricValue"] {font-size:1.65rem}
-        .st-key-tester-summary [data-testid="stMetricLabel"] p {white-space:normal}
+        [class*="st-key-tester-summary-"] [data-testid="stHorizontalBlock"] {flex-wrap:wrap}
+        [class*="st-key-tester-summary-"] [data-testid="stColumn"] {flex:1 1 160px;min-width:160px}
+        [class*="st-key-tester-summary-"] [data-testid="stMetricValue"] {font-size:1.65rem}
+        [class*="st-key-tester-summary-"] [data-testid="stMetricLabel"] p {white-space:normal}
         </style>
     """)
-    with st.container(border=True, key="tester-summary"):
+    with st.container(border=True, key=f"tester-summary-{report.run_id}"):
         cols = st.columns(4)
         cols[0].metric(
             "Net profit / loss",
@@ -211,11 +211,11 @@ def performance(report: RunReport) -> None:
     # Keep each label/value pair together when Streamlit normally stacks narrow columns.
     st.html("""
         <style>
-        .st-key-performance-report [data-testid="stHorizontalBlock"] {flex-wrap:nowrap}
-        .st-key-performance-report [data-testid="stColumn"] {min-width:0 !important}
+        [class*="st-key-performance-report-"] [data-testid="stHorizontalBlock"] {flex-wrap:nowrap}
+        [class*="st-key-performance-report-"] [data-testid="stColumn"] {min-width:0 !important}
         </style>
     """)
-    with st.container(key="performance-report"):
+    with st.container(key=f"performance-report-{report.run_id}"):
         for group, rows in groups.items():
             st.subheader(group)
             with st.container(border=True):
@@ -334,6 +334,20 @@ def trades_panel(report: RunReport, folder: Path, timezone: str) -> None:
                 fills[fills.order_id.isin(trade.order_ids)], hide_index=True, width="stretch"
             )
             stops = [s for s in report.chart.stops if s["entry_order_id"] == trade.order_ids[0]]
+            lifecycle = read_report(folder, "protective_orders")
+            if not lifecycle.empty and "initial_r_points" in lifecycle:
+                trail = lifecycle[
+                    lifecycle.entry_order_id.eq(trade.order_ids[0])
+                    & lifecycle.event.isin(["trail_activated", "updated", "modify_rejected"])
+                ]
+                if not trail.empty:
+                    st.write("Trailing stop activity")
+                    st.dataframe(
+                        trail[["timestamp", "event", "price", "initial_r_points",
+                               "activation_r", "distance_r"]],
+                        hide_index=True,
+                        width="stretch",
+                    )
             st.write("Protective stops")
             if stops:
                 st.dataframe(pd.DataFrame(stops), hide_index=True, width="stretch")
@@ -358,7 +372,8 @@ def render_results(folder: Path) -> None:
     st.subheader(report.config.name)
     cols = st.columns([3, 2])
     cols[0].caption(
-        f"{s['symbol']} · 1h · {'HALTED' if s.get('halted') else 'COMPLETED'} · "
+        f"{s['symbol']} · {s.get('bar_interval', '1h')} · "
+        f"{'HALTED' if s.get('halted') else 'COMPLETED'} · "
         f"{s['dataset_kind'].replace('_', ' ')} · Run {run_id}"
     )
     timezone = cols[1].selectbox(
@@ -406,7 +421,8 @@ def render_results(folder: Path) -> None:
     render_chart(payload, "price", timezone, selected, component)
     with st.expander("Strategy Tester", expanded=True):
         overview_tab, performance_tab, trades_tab, settings_tab, diagnostics_tab = st.tabs(
-            ["Overview", "Performance", "Trades", "Run settings", "Diagnostics"]
+            ["Overview", "Performance", "Trades", "Run settings", "Diagnostics"],
+            key=f"tester-tabs-{run_id}",
         )
         with overview_tab:
             overview(report, payload, timezone, selected, component)
@@ -478,7 +494,8 @@ def render_results(folder: Path) -> None:
                 st.json(s)
                 st.json(report.manifest)
     st.caption(
-        "Research simulation. Hourly OHLC cannot establish intrabar chronology. "
+        f"Research simulation. {s.get('bar_interval', '1h')} OHLC cannot establish "
+        "intrabar chronology. "
         "Small samples do not establish profitability. "
         "Rolling proxies have unverified roll economics."
     )
