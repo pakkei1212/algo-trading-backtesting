@@ -57,6 +57,7 @@ class BaselineStrategy(Strategy):
         self.initial_r_points = 0.0
         self.best_trailing_close: float | None = None
         self.halted = False
+        self.above_drawdown_threshold = False
         self.high_water = settings.initial_equity_usd
         self.decisions: list[dict] = []
         self.equity: list[dict] = []
@@ -298,7 +299,14 @@ class BaselineStrategy(Strategy):
                     "in_position": not self.portfolio.is_flat(self.instrument_id),
                 }
             )
-            just_halted = drawdown >= self.settings.max_drawdown_fraction and not self.halted
+            breached = drawdown >= self.settings.max_drawdown_fraction
+            if (
+                breached and not self.above_drawdown_threshold
+                and not self.settings.drawdown_halt_enabled
+            ):
+                self.record("drawdown_threshold_breach", drawdown=drawdown)
+            self.above_drawdown_threshold = breached
+            just_halted = breached and self.settings.drawdown_halt_enabled and not self.halted
             if just_halted:
                 self.halted = True
                 self.pending = ("exit", 0, 0)

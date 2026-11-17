@@ -1,5 +1,8 @@
 # Milestone 3: historical diagnostics and execution experiments
 
+See the [matched all-variants comparison](mnq-all-variants-comparison.md) for the
+separate recipe that evaluates every fixed configuration with the account halt disabled.
+
 This is research on a development-exposed archive, not locked or prospective evidence.
 
 ## Reference and source identity
