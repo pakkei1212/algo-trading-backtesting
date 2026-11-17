@@ -8,6 +8,8 @@ from test_research import market_bars, settings
 
 from mnq_research.cloud import (
     BACKTEST_LOCK,
+    MAX_BARS,
+    MAX_DATASETS,
     MAX_UPLOAD_BYTES,
     CloudWorkspace,
     import_upload,
@@ -50,9 +52,10 @@ def test_session_isolation_cleanup_and_archive() -> None:
             assert f"{run.name}/bars.parquet" in archive.namelist()
             assert f"{run.name}/summary.json" in archive.namelist()
             assert f"{run.name}/config.yaml" in archive.namelist()
-        replacement = upload(first)
-        assert not data.exists()
-        assert replacement.exists() and (run / "bars.parquet").exists()
+        second_dataset = upload(first)
+        assert data.exists()
+        assert second_dataset.exists() and (run / "bars.parquet").exists()
+        assert len(list((first.root / "data").glob("*/metadata.json"))) == 2
     finally:
         first.close()
         second.close()
@@ -84,13 +87,37 @@ def test_rejects_invalid_upload_without_writing(changes, message) -> None:
 def test_bar_limit_and_rolling_metadata() -> None:
     workspace = CloudWorkspace()
     try:
-        content = market_bars([100] * 10_001).rename_axis("timestamp").to_csv().encode()
-        with pytest.raises(ValueError, match="10,000"):
+        content = market_bars([100] * (MAX_BARS + 1)).rename_axis("timestamp").to_csv().encode()
+        with pytest.raises(ValueError, match=f"{MAX_BARS:,}"):
             upload(workspace, content=content)
         folder = upload(workspace, kind="rolling_proxy", symbol="MNQ=F", acknowledge_proxy=True)
         _, metadata = load_dataset(folder)
         assert metadata["kind"] == "rolling_proxy" and metadata["source"] == "test only"
         assert metadata["timestamp_semantics"] == "bar_close"
+        assert metadata["bar_interval"] == "1h"
+    finally:
+        workspace.close()
+
+
+def test_cloud_accepts_five_minute_bars_and_preserves_old_datasets() -> None:
+    workspace = CloudWorkspace()
+    try:
+        old = upload(workspace)
+        short_bars = market_bars([100, 101, 102, 103, 104, 105, 106, 107], "5m")
+        new = upload(
+            workspace,
+            content=short_bars.rename_axis("timestamp").to_csv().encode(),
+            bar_interval="5m",
+        )
+        loaded, metadata = load_dataset(new)
+        assert len(loaded) == 8
+        assert metadata["bar_interval"] == "5m"
+        assert old.exists() and new.exists()
+        for _ in range(MAX_DATASETS - 2):
+            upload(workspace)
+        with pytest.raises(ValueError, match="already has 5 datasets"):
+            upload(workspace)
+        assert len(list((workspace.root / "data").glob("*/metadata.json"))) == MAX_DATASETS
     finally:
         workspace.close()
 

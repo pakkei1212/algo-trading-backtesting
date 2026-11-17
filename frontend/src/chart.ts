@@ -44,6 +44,7 @@ type Payload = {
   version: number;
   run_id: string;
   symbol: string;
+  bar_interval: string;
   mode: "price" | "performance";
   timezone: string;
   candles: Candle[];
@@ -67,7 +68,11 @@ type Payload = {
     pnl: number;
     drawdown: number;
   }[];
-  events: { timestamp: string; reason: string }[];
+  events: {
+    timestamp: string;
+    reason: string;
+    detail?: { contract?: string };
+  }[];
   halt_limit: number;
   selected: string | null;
   command?: { id: string; kind: string; trade_id?: string };
@@ -80,7 +85,7 @@ type Settings = {
   stops: boolean;
   markers: boolean;
   auto: boolean;
-  line: boolean;
+  closeLine: boolean;
   drawdown: boolean;
   metric: "equity" | "pnl";
 };
@@ -125,7 +130,7 @@ export default function render({ data, parentElement, setStateValue }: Args) {
     stops: true,
     markers: true,
     auto: true,
-    line: false,
+    closeLine: false,
     drawdown: true,
     metric: "equity",
     ...stored.settings,
@@ -160,7 +165,7 @@ export default function render({ data, parentElement, setStateValue }: Args) {
   }
   const heading = element(
     "div",
-    `${data.symbol} · 1h · ${data.timezone} · ${data.mode === "price" ? "Price & strategy" : "Performance"}`,
+    `${data.symbol} · ${data.bar_interval} · ${data.timezone} · ${data.mode === "price" ? "Price & strategy" : "Performance"}`,
   );
   heading.className = "chart-heading";
   const toolbar = element("div");
@@ -186,7 +191,7 @@ export default function render({ data, parentElement, setStateValue }: Args) {
   attribution.rel = "noopener";
   element(
     "span",
-    " · TradingView Lightweight Charts™ · Copyright (с) 2025 TradingView, Inc. · Hourly simulation.",
+    " · TradingView Lightweight Charts™ · Copyright (с) 2025 TradingView, Inc. · Research simulation.",
     footer,
   );
   function save() {
@@ -325,7 +330,7 @@ export default function render({ data, parentElement, setStateValue }: Args) {
     ctx.fillStyle = getComputedStyle(root).color;
     ctx.font = "14px sans-serif";
     ctx.fillText(
-      `${data.symbol} · 1h · ${data.timezone} · ${data.run_id}`,
+      `${data.symbol} · ${data.bar_interval} · ${data.timezone} · ${data.run_id}`,
       12,
       22,
     );
@@ -346,7 +351,20 @@ export default function render({ data, parentElement, setStateValue }: Args) {
     a.click();
   });
   if (data.mode === "price") {
-    toggle("Close line", "line");
+    const displayLabel = () =>
+      settings.closeLine
+        ? "Price: Close line (show candles)"
+        : "Price: Candles (show close line)";
+    const displayButton = button(
+      displayLabel(),
+      () => {
+        settings.closeLine = !settings.closeLine;
+        displayButton.textContent = displayLabel();
+        save();
+        build();
+      },
+      controls,
+    );
     toggle("Strategy averages", "sma");
     toggle("Stops", "stops");
     toggle("Executions", "markers");
@@ -434,7 +452,7 @@ export default function render({ data, parentElement, setStateValue }: Args) {
       localization: { timeFormatter: (t: Time) => format(Number(t)) },
     });
     if (data.mode === "price") {
-      if (settings.line) {
+      if (settings.closeLine) {
         priceSeries = chart.addSeries(LineSeries, {
           color: blue,
           priceFormat: { type: "price", precision: 2, minMove: 0.25 },
@@ -557,6 +575,22 @@ export default function render({ data, parentElement, setStateValue }: Args) {
           color: "#ff9800",
           id: "halt",
         });
+      }
+      for (const event of data.events) {
+        if (event.reason !== "contract_switch") continue;
+        const candle = candles.find(
+          (c) => c.time >= timestamp(event.timestamp),
+        );
+        if (candle) {
+          markers.push({
+            time: time(candle.time),
+            text: `Roll to ${event.detail?.contract ?? "next contract"}`,
+            position: "aboveBar",
+            shape: "square",
+            color: "#64748b",
+            id: `roll:${event.timestamp}`,
+          });
+        }
       }
       markers.sort((a, b) => Number(a.time) - Number(b.time));
       const plugin = createSeriesMarkers(priceSeries, markers);

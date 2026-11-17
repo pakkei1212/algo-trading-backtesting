@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from mnq_research.config import StrategyConfig, load_config
+from mnq_research.data import interval_duration
 
 
 @dataclass
@@ -30,6 +31,7 @@ class TradeRecord:
     entry_explanation: str = "Unavailable in this legacy run"
     exit_explanation: str = "Unavailable in this legacy run"
     signal_time: str | None = None
+    contract: str | None = None
 
 
 @dataclass
@@ -141,9 +143,11 @@ def load_run(folder: Path) -> RunReport:
     bars = pd.read_parquet(folder / "bars.parquet")
     bars = bars.loc[utc(summary["first_bar"]) : utc(summary["last_bar"])]
     close_times = pd.DatetimeIndex(bars.index)
+    bar_interval = manifest.get("dataset", {}).get("bar_interval", "1h")
+    bar_duration_seconds = int(interval_duration(bar_interval).total_seconds())
     candles = [
         dict(
-            time=seconds(ts) - 3600,
+            time=seconds(ts) - bar_duration_seconds,
             close_time=ts.isoformat(),
             **{k: float(row[k]) for k in ("open", "high", "low", "close", "volume")},
         )
@@ -155,6 +159,13 @@ def load_run(folder: Path) -> RunReport:
         )
         for row in decisions.to_dict("records")
     ]
+    if summary["dataset_kind"] == "continuous_research":
+        for segment in manifest["dataset"]["segments"]:
+            opened = segment["segment_open_utc"]
+            if utc(summary["first_bar"]) < utc(opened) < utc(summary["last_bar"]):
+                events.append(
+                    RunEvent(opened, "contract_switch", {"contract": segment["contract"]})
+                )
     trades: list[TradeRecord] = []
     if not positions.empty:
         positions = positions.sort_values("ts_opened")
@@ -203,6 +214,8 @@ def load_run(folder: Path) -> RunReport:
             )
         )
         trade = trades[-1]
+        if summary["dataset_kind"] == "continuous_research":
+            trade.contract = str(row["instrument_id"]).split(".")[0]
         if config.builder and "signal_id" in linked:
             signals = linked.signal_id.dropna()
             signal = next(
@@ -270,28 +283,30 @@ def load_run(folder: Path) -> RunReport:
                 **{
                     k: float(value)
                     for k, value in row.items()
-                    if k != "timestamp" and pd.notna(value)
+                    if k not in {"timestamp", "contract"} and pd.notna(value)
                 },
             }
         )
     stops = []
     if not lifecycle.empty:
         for order_id, history in lifecycle.groupby("order_id", sort=False):
-            active = history[history.event.eq("accepted")]
+            active = history[history.event.isin(["accepted", "updated"])]
             if active.empty:
                 continue
-            first = active.iloc[0]
             terminal = history[history.event.isin(["filled", "canceled", "expired", "rejected"])]
             last = str(terminal.timestamp.iloc[-1]) if not terminal.empty else summary["last_bar"]
-            stops.append(
-                dict(
-                    order_id=str(order_id),
-                    start=str(first.timestamp),
-                    end=last,
-                    price=float(first.price),
-                    entry_order_id=str(first.entry_order_id),
+            changes = active.to_dict("records")
+            for index, change in enumerate(changes):
+                end = changes[index + 1]["timestamp"] if index + 1 < len(changes) else last
+                stops.append(
+                    dict(
+                        order_id=str(order_id),
+                        start=str(change["timestamp"]),
+                        end=str(end),
+                        price=float(change["price"]),
+                        entry_order_id=str(change["entry_order_id"]),
+                    )
                 )
-            )
     performance = [
         dict(
             time=seconds(r["timestamp"]),
@@ -326,6 +341,9 @@ def chart_payload(report: RunReport) -> dict:
         version=2,
         run_id=report.run_id,
         symbol=report.summary["symbol"],
+        bar_interval=report.summary.get(
+            "bar_interval", report.manifest.get("dataset", {}).get("bar_interval", "1h")
+        ),
         **asdict(report.chart),
         trades=[asdict(t) for t in report.trades],
         events=[asdict(e) for e in report.events],
@@ -360,6 +378,7 @@ def trade_table(trades: list[TradeRecord], timezone: str) -> pd.DataFrame:
         [
             {
                 "Trade": t.number,
+                **({"Contract": t.contract} if t.contract else {}),
                 "Direction": t.direction,
                 "Status": t.status,
                 "Entry time": display_time(t.entry_time, timezone),

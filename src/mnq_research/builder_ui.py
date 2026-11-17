@@ -127,7 +127,7 @@ def render_builder(base: StrategyConfig, key: str) -> tuple[BuilderConfig | None
     initial = base.builder or trend_pullback()
     st.subheader("Entry & exit criteria")
     st.caption(
-        "Hourly completed bars · Editable trend-pullback template · "
+        "Completed bars at the selected dataset interval · Editable trend-pullback template · "
         "Research defaults, not optimized settings"
     )
     direction = st.selectbox(
